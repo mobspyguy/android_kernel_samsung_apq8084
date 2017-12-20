@@ -18,7 +18,9 @@
 #include <linux/usb_notify.h>
 #include <linux/battery/charger/max77843_charger.h>
 #include <linux/battery/sec_battery.h>
+#if defined(CONFIG_FORCE_FAST_CHARGE)
 #include <linux/fastchg.h>
+#endif
 
 #define ENABLE 1
 #define DISABLE 0
@@ -1146,6 +1148,7 @@ static int max77843_chg_get_property(struct power_supply *psy,
 	return 0;
 }
 
+#if defined(CONFIG_FORCE_FAST_CHARGE)
 static bool check_fastcharge(struct max77843_charger_data *charger)
 {
 	bool ret = false;
@@ -1218,6 +1221,7 @@ static bool check_fastcharge(struct max77843_charger_data *charger)
 	}
 	return ret;
 }
+#endif
 
 static int max77843_chg_set_property(struct power_supply *psy,
 			  enum power_supply_property psp,
@@ -1253,7 +1257,9 @@ static int max77843_chg_set_property(struct power_supply *psy,
 		}
 
 		charger->cable_type = val->intval;
+#if defined(CONFIG_FORCE_FAST_CHARGE)
 		if (!check_fastcharge(charger))
+#endif
 			max77843_charger_function_control(charger);
 		break;
 	/* val->intval : input charging current */
@@ -1286,9 +1292,10 @@ static int max77843_chg_set_property(struct power_supply *psy,
 	case POWER_SUPPLY_PROP_CHARGE_FULL_DESIGN:
 		charger->siop_level = val->intval;
 		if (charger->is_charging) {
+#if defined(CONFIG_FORCE_FAST_CHARGE)
 			if (check_fastcharge(charger))
 				goto got_override;
-		
+#endif
 			/* decrease the charging current according to siop level */
 			current_now =
 				charger->charging_current * val->intval / 100;
@@ -1315,7 +1322,9 @@ static int max77843_chg_set_property(struct power_supply *psy,
 					set_charging_current_max);
 			max77843_set_charge_current(charger, current_now);
 		}
+#if defined(CONFIG_FORCE_FAST_CHARGE)
 got_override:
+#endif
 		break;
 	case POWER_SUPPLY_PROP_USB_HC:
 		/* set input/charging current for usb up to TA's current */
