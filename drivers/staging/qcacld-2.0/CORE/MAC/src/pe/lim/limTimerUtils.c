@@ -40,7 +40,7 @@
 #include "limAssocUtils.h"
 #include "limSecurityUtils.h"
 #include "pmmApi.h"
-
+#include "limApi.h"
 
 // default value 5000 ms for background scan period when it is disabled
 #define LIM_BACKGROUND_SCAN_PERIOD_DEFAULT_MS    5000
@@ -813,7 +813,8 @@ limTimerHandler(void *pMacGlobal, tANI_U32 param)
     msg.bodyptr = NULL;
     msg.bodyval = 0;
 
-    if ((statusCode = limPostMsgApi(pMac, &msg)) != eSIR_SUCCESS)
+    statusCode = lim_post_msg_high_pri(pMac, &msg);
+    if (statusCode != eSIR_SUCCESS)
         limLog(pMac, LOGE,
                FL("posting message %X to LIM failed, reason=%d"),
                msg.type, statusCode);
@@ -929,7 +930,16 @@ limAssocFailureTimerHandler(void *pMacGlobal, tANI_U32 param)
        (pMac->lim.pSessionEntry->limMlmState == eLIM_MLM_WT_FT_REASSOC_RSP_STATE))
     {
         limLog(pMac, LOGE, FL("Reassoc timeout happened"));
-        if(pMac->lim.reAssocRetryAttempt < LIM_MAX_REASSOC_RETRY_LIMIT)
+#ifdef FEATURE_WLAN_ESE
+	if (((pMac->lim.pSessionEntry->isESEconnection) &&
+             (pMac->lim.reAssocRetryAttempt <
+             (LIM_MAX_REASSOC_RETRY_LIMIT - 1)))||
+             ((!pMac->lim.pSessionEntry->isESEconnection) &&
+             (pMac->lim.reAssocRetryAttempt < LIM_MAX_REASSOC_RETRY_LIMIT))
+	   )
+#else
+        if (pMac->lim.reAssocRetryAttempt < LIM_MAX_REASSOC_RETRY_LIMIT)
+#endif
         {
             limSendRetryReassocReqFrame(pMac, pMac->lim.pSessionEntry->pLimMlmReassocRetryReq, pMac->lim.pSessionEntry);
             pMac->lim.reAssocRetryAttempt++;
@@ -1782,9 +1792,8 @@ limReactivateHeartBeatTimer(tpAniSirGlobal pMac, tpPESession psessionEntry)
         * the host causing the host to wakeup. Hence, offloading the HB
         * monitoring to LMAC
         */
-       if (psessionEntry->limSystemRole == eLIM_STA_IN_IBSS_ROLE &&
-             IS_IBSS_HEARTBEAT_OFFLOAD_FEATURE_ENABLE)
-       {
+       if (LIM_IS_IBSS_ROLE(psessionEntry) &&
+             IS_IBSS_HEARTBEAT_OFFLOAD_FEATURE_ENABLE) {
           if (tx_timer_deactivate(&pMac->lim.limTimers.gLimHeartBeatTimer)!= TX_SUCCESS)
           {
              limLog(pMac, LOGP,FL("IBSS HeartBeat Offloaded, Could not deactivate Heartbeat timer"));
@@ -1844,9 +1853,8 @@ v_UINT_t limActivateHearBeatTimer(tpAniSirGlobal pMac, tpPESession psessionEntry
         //consider 0 interval a ok case
         if( pMac->lim.limTimers.gLimHeartBeatTimer.initScheduleTimeInMsecs )
         {
-           if (psessionEntry->limSystemRole == eLIM_STA_IN_IBSS_ROLE &&
-               IS_IBSS_HEARTBEAT_OFFLOAD_FEATURE_ENABLE)
-           {
+           if (LIM_IS_IBSS_ROLE(psessionEntry) &&
+               IS_IBSS_HEARTBEAT_OFFLOAD_FEATURE_ENABLE) {
               /* HB offload in IBSS mode */
               status = tx_timer_deactivate(&pMac->lim.limTimers.gLimHeartBeatTimer);
               if (TX_SUCCESS != status)

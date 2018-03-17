@@ -267,21 +267,17 @@ void hdd_flush_ibss_tx_queues( hdd_adapter_t *pAdapter, v_U8_t STAId)
       list_for_each_safe(tmp, next, &pAdapter->wmm_tx_queue[i].anchor)
       {
          pktNode = list_entry(tmp, skb_list_node_t, anchor);
-         if (pktNode != NULL)
-         {
-            skb = pktNode->skb;
+         skb = pktNode->skb;
 
-            /* Get the STAId from data */
-            skbStaIdx = *(v_U8_t *)(((v_U8_t *)(skb->data)) - 1);
-            if (skbStaIdx == STAId)
-            {
-               /* Data for STAId is freed along with the queue node */
+         /* Get the STAId from data */
+         skbStaIdx = *(v_U8_t *)(((v_U8_t *)(skb->data)) - 1);
+         if (skbStaIdx == STAId) {
+            /* Data for STAId is freed along with the queue node */
 
-               list_del(tmp);
-               kfree_skb(skb);
+            list_del(tmp);
+            kfree_skb(skb);
 
-               pAdapter->wmm_tx_queue[i].count--;
-            }
+            pAdapter->wmm_tx_queue[i].count--;
          }
       }
 
@@ -1095,22 +1091,35 @@ void hdd_tx_timeout(struct net_device *dev)
 	vos_ssr_unprotect(__func__);
 }
 
-
-/**============================================================================
-  @brief hdd_stats() - Function registered with the Linux OS for
-  device TX/RX statistic
-
-  @param dev      : [in] pointer to Libra network device
-
-  @return         : pointer to net_device_stats structure
-  ===========================================================================*/
-struct net_device_stats* hdd_stats(struct net_device *dev)
+/**
+ * __hdd_stats() - Function registered with the Linux OS for
+ *			device TX/RX statistics
+ * @dev: pointer to net_device structure
+ *
+ * Return: pointer to net_device_stats structure
+ */
+static struct net_device_stats *__hdd_stats(struct net_device *dev)
 {
-   hdd_adapter_t *pAdapter =  WLAN_HDD_GET_PRIV_PTR(dev);
-
-   return &pAdapter->stats;
+	hdd_adapter_t *pAdapter =  WLAN_HDD_GET_PRIV_PTR(dev);
+	return &pAdapter->stats;
 }
 
+/**
+ * hdd_stats() - SSR wrapper for __hdd_stats
+ * @dev: pointer to net_device structure
+ *
+ * Return: pointer to net_device_stats structure
+ */
+struct net_device_stats* hdd_stats(struct net_device *dev)
+{
+	struct net_device_stats *dev_stats;
+
+	vos_ssr_protect(__func__);
+	dev_stats = __hdd_stats(dev);
+	vos_ssr_unprotect(__func__);
+
+	return dev_stats;
+}
 
 /**============================================================================
   @brief hdd_init_tx_rx() - Init function to initialize Tx/RX

@@ -80,6 +80,7 @@
 #include "vos_packet.h"
 #include "vos_memory.h"
 
+#define CHECK_BIT(value, mask)    ((value) & (1 << (mask)))
 void limLogSessionStates(tpAniSirGlobal pMac);
 
 /** -------------------------------------------------------------
@@ -505,7 +506,7 @@ static void limHandleUnknownA2IndexFrames(tpAniSirGlobal pMac, void *pRxPacketIn
        //limSendDisassocMgmtFrame(pMac, eSIR_MAC_CLASS3_FRAME_FROM_NON_ASSOC_STA_REASON,(tANI_U8 *) pRxPacketInfo);
     //TODO: verify this
     //This could be a public action frame.
-    if( psessionEntry->limSystemRole == eLIM_P2P_DEVICE_ROLE )
+    if (LIM_IS_P2P_DEVICE_ROLE(psessionEntry))
         limProcessActionFrameNoSession(pMac, (tANI_U8 *) pRxPacketInfo);
 
 #ifdef FEATURE_WLAN_TDLS
@@ -522,7 +523,7 @@ static void limHandleUnknownA2IndexFrames(tpAniSirGlobal pMac, void *pRxPacketIn
         }
         /* TDLS_hklee: move down here to reject Addr2 == Group (first checking above)
            and also checking if SystemRole == STA */
-        if (psessionEntry->limSystemRole == eLIM_STA_ROLE)
+        if (LIM_IS_STA_ROLE(psessionEntry))
         {
             /* ADD handling of Public Action Frame */
             LIM_LOG_TDLS(VOS_TRACE(VOS_MODULE_ID_PE, VOS_TRACE_LEVEL_ERROR, \
@@ -860,13 +861,10 @@ limHandle80211Frames(tpAniSirGlobal pMac, tpSirMsgQ limMsg, tANI_U8 *pDeferMsg)
             {
                 case SIR_MAC_MGMT_ASSOC_REQ:
                     // Make sure the role supports Association
-                    if ((psessionEntry->limSystemRole == eLIM_BT_AMP_AP_ROLE)
-                    || (psessionEntry->limSystemRole == eLIM_AP_ROLE)
-                    )
+                    if (LIM_IS_BT_AMP_AP_ROLE(psessionEntry) ||
+                        LIM_IS_AP_ROLE(psessionEntry))
                         limProcessAssocReqFrame(pMac, pRxPacketInfo, LIM_ASSOC, psessionEntry);
-
-                    else
-                    {
+                    else {
                         // Unwanted messages - Log error
                         limLog(pMac, LOGE, FL("unexpected message received %X"),limMsg->type);
                         limPrintMsgName(pMac, LOGE, limMsg->type);
@@ -879,13 +877,10 @@ limHandle80211Frames(tpAniSirGlobal pMac, tpSirMsgQ limMsg, tANI_U8 *pDeferMsg)
 
                 case SIR_MAC_MGMT_REASSOC_REQ:
                     // Make sure the role supports Reassociation
-                    if ((psessionEntry->limSystemRole == eLIM_BT_AMP_AP_ROLE)
-                      || (psessionEntry->limSystemRole == eLIM_AP_ROLE)
-                    ){
+                    if (LIM_IS_BT_AMP_AP_ROLE(psessionEntry) ||
+                        LIM_IS_AP_ROLE(psessionEntry)) {
                         limProcessAssocReqFrame(pMac, pRxPacketInfo, LIM_REASSOC, psessionEntry);
-                    }
-                    else
-                    {
+                    } else {
                         // Unwanted messages - Log error
                         limLog(pMac, LOGE, FL("unexpected message received %X"),limMsg->type);
                         limPrintMsgName(pMac, LOGE, limMsg->type);
@@ -1187,8 +1182,7 @@ limProcessMessages(tpAniSirGlobal pMac, tpSirMsgQ  limMsg)
 #if defined(ANI_DVT_DEBUG)
     tSirMsgQ  msgQ;
 #endif
-    if(pMac->gDriverType == eDRIVER_TYPE_MFG)
-    {
+    if (ANI_DRIVER_TYPE(pMac) == eDRIVER_TYPE_MFG) {
         vos_mem_free(limMsg->bodyptr);
         limMsg->bodyptr = NULL;
         return;
@@ -1994,8 +1988,11 @@ limProcessMessages(tpAniSirGlobal pMac, tpSirMsgQ  limMsg)
         {
 #ifdef WLAN_ACTIVEMODE_OFFLOAD_FEATURE
             tpPESession     psessionEntry;
-            tANI_U8 sessionId = (tANI_U8)limMsg->bodyval ;
-            psessionEntry = &pMac->lim.gpSession[sessionId];
+            tANI_U8 session_id;
+            tSirSetActiveModeSetBncFilterReq *bcn_filter_req =
+               (tSirSetActiveModeSetBncFilterReq *)limMsg->bodyptr;
+            psessionEntry = peFindSessionByBssid(pMac, bcn_filter_req->bssid,
+                                                 &session_id);
             if(psessionEntry != NULL && IS_ACTIVEMODE_OFFLOAD_FEATURE_ENABLE)
             {
                // sending beacon filtering information down to HAL
@@ -2014,6 +2011,8 @@ limProcessMessages(tpAniSirGlobal pMac, tpSirMsgQ  limMsg)
         {
             tpPESession     psessionEntry;
             tANI_U8         sessionId;
+            tDphHashNode   *sta_ds = NULL;
+            int i, aid;
             tTdlsLinkEstablishParams *pTdlsLinkEstablishParams;
             pTdlsLinkEstablishParams = (tTdlsLinkEstablishParams*) limMsg->bodyptr;
 
@@ -2034,11 +2033,33 @@ limProcessMessages(tpAniSirGlobal pMac, tpSirMsgQ  limMsg)
             }
             else
             {
-                limSendSmeTdlsLinkEstablishReqRsp(pMac,
-                                                  psessionEntry->smeSessionId,
-                                                  NULL,
-                                                  NULL,
-                                                  pTdlsLinkEstablishParams->status) ;
+                for (i = 0;
+                     i < sizeof(psessionEntry->peerAIDBitmap)
+                                           / sizeof(uint32_t); i++) {
+                    for (aid = 0; aid < (sizeof(tANI_U32) << 3); aid++) {
+                        if (CHECK_BIT(psessionEntry->peerAIDBitmap[i], aid)) {
+                            sta_ds = dphGetHashEntry(pMac,
+                                           (aid + i*(sizeof(tANI_U32) << 3)),
+                                            &psessionEntry->dph.dphHashTable);
+                              if ((sta_ds) &&
+                                   (pTdlsLinkEstablishParams->staIdx ==
+                                                       sta_ds->staIndex))
+                                  goto send_link_resp;
+                        }
+                    }
+                }
+send_link_resp:
+                if (sta_ds)
+                    limSendSmeTdlsLinkEstablishReqRsp(pMac,
+                                              psessionEntry->smeSessionId,
+                                              sta_ds->staAddr,
+                                              sta_ds,
+                                              pTdlsLinkEstablishParams->status);
+                else
+                    limSendSmeTdlsLinkEstablishReqRsp(pMac,
+                                              psessionEntry->smeSessionId,
+                                              NULL, NULL,
+                                              pTdlsLinkEstablishParams->status);
             }
             vos_mem_free((v_VOID_t *)(limMsg->bodyptr));
             limMsg->bodyptr = NULL;
@@ -2116,6 +2137,13 @@ limProcessMessages(tpAniSirGlobal pMac, tpSirMsgQ  limMsg)
         limMsg->bodyptr = NULL;
         break;
 #endif
+
+    case eWNI_SME_DEL_ALL_TDLS_PEERS:
+        lim_process_sme_del_all_tdls_peers(pMac, limMsg->bodyptr);
+        vos_mem_free((v_VOID_t*)limMsg->bodyptr);
+        limMsg->bodyptr = NULL;
+        break;
+
     default:
         vos_mem_free((v_VOID_t*)limMsg->bodyptr);
         limMsg->bodyptr = NULL;

@@ -1620,6 +1620,17 @@ eHalStatus csrNeighborRoamPreauthRspHandler(tpAniSirGlobal pMac,
             }
         }
 
+        if (pMac->roam.pending_roam_disable)
+        {
+            smsLog(pMac, LOG1, FL("process pending roam disable"));
+            pMac->roam.configParam.isFastRoamIniFeatureEnabled = FALSE;
+            pMac->roam.pending_roam_disable = FALSE;
+            csrNeighborRoamUpdateFastRoamingEnabled(pMac, sessionId, FALSE);
+            CSR_NEIGHBOR_ROAM_STATE_TRANSITION(
+                               eCSR_NEIGHBOR_ROAM_STATE_CONNECTED, sessionId);
+            goto DEQ_PREAUTH;
+        }
+
         /* Issue preauth request for the same/next entry */
         if (eHAL_STATUS_SUCCESS == csrNeighborRoamIssuePreauthReq(pMac,
                                                                   sessionId))
@@ -4321,6 +4332,9 @@ VOS_STATUS csrNeighborRoamTransitToCFGChanScan(tpAniSirGlobal pMac,
         else
         {
             numOfChannels = pMac->scan.occupiedChannels[sessionId].numChannels;
+            if (numOfChannels > WNI_CFG_VALID_CHANNEL_LIST_LEN) {
+                numOfChannels = WNI_CFG_VALID_CHANNEL_LIST_LEN;
+            }
             if (numOfChannels
 #ifdef FEATURE_WLAN_LFR
                 && ((pNeighborRoamInfo->uScanMode == SPLIT_SCAN_OCCUPIED_LIST) ||
@@ -4352,10 +4366,6 @@ VOS_STATUS csrNeighborRoamTransitToCFGChanScan(tpAniSirGlobal pMac,
                 }
                 else
                 {
-                    if (numOfChannels > WNI_CFG_VALID_CHANNEL_LIST_LEN)
-                    {
-                        numOfChannels = WNI_CFG_VALID_CHANNEL_LIST_LEN;
-                    }
                     vos_mem_copy(channelList,
                             pMac->scan.occupiedChannels[sessionId].channelList,
                             numOfChannels * sizeof(tANI_U8));
@@ -4386,10 +4396,6 @@ VOS_STATUS csrNeighborRoamTransitToCFGChanScan(tpAniSirGlobal pMac,
                 {
                     smsLog(pMac, LOGE, FL("Memory allocation for Channel list failed"));
                     return VOS_STATUS_E_RESOURCES;
-                }
-                if (numOfChannels > WNI_CFG_VALID_CHANNEL_LIST_LEN)
-                {
-                    numOfChannels = WNI_CFG_VALID_CHANNEL_LIST_LEN;
                 }
                 vos_mem_copy(currChannelListInfo->ChannelList,
                         scanChannelList,
@@ -5199,6 +5205,13 @@ eHalStatus csrNeighborRoamIndicateConnect(tpAniSirGlobal pMac,
                                 pNeighborRoamInfo->isESEAssoc, init_ft_flag);
 
 #endif
+
+            if (pMac->roam.pending_roam_disable)
+            {
+                smsLog(pMac, LOG1, FL("process pending roam disable"));
+                pMac->roam.configParam.isFastRoamIniFeatureEnabled = FALSE;
+                pMac->roam.pending_roam_disable = FALSE;
+            }
 
 #ifdef FEATURE_WLAN_LFR
             // If "Legacy Fast Roaming" is enabled

@@ -156,20 +156,22 @@ limConvertSupportedChannels(tpAniSirGlobal pMac,
         pMlmAssocInd->supportedChannels.numChnl);)
 }
 
-/**---------------------------------------------------------------
-\fn     lim_check_sta_in_pe_entries
-\brief  This function is called by limProcessAssocReqFrame()
-\       to check if STA entry already exists in any of the
-\       PE entries of the AP. If it exists, deauth will be
-\       sent on that session and the STA deletion will
-\       happen. After this, the ASSOC request will be
-\       processed
-\
-\param pMac - A pointer to Global MAC structure
-\param pHdr - A pointer to the MAC header
-\return None
-------------------------------------------------------------------*/
-void lim_check_sta_in_pe_entries(tpAniSirGlobal pMac, tpSirMacMgmtHdr pHdr)
+/**
+ * lim_check_sta_in_pe_entries() - to check if sta entry already exists
+ * @pMac - A pointer to Global MAC structure
+ * @pHdr - A pointer to the MAC header
+ * @sessionid - session id for which session is initiated
+ *
+ * This function is called by limProcessAssocReqFrame()
+ * to check if STA entry already exists in any of the
+ * PE entries of the AP. If it exists, deauth will be
+ * sent on that session and the STA deletion will
+ * happen. After this, the ASSOC request will be processed
+ *
+ * Return: None
+ */
+void lim_check_sta_in_pe_entries(tpAniSirGlobal pMac, tpSirMacMgmtHdr pHdr,
+                                 uint16_t sessionid)
 {
     tANI_U8 i;
     tANI_U16 assocId = 0;
@@ -188,7 +190,8 @@ void lim_check_sta_in_pe_entries(tpAniSirGlobal pMac, tpSirMacMgmtHdr pHdr)
                             &psessionEntry->dph.dphHashTable);
             if (pStaDs
 #ifdef WLAN_FEATURE_11W
-                && !pStaDs->rmfEnabled
+                && (!pStaDs->rmfEnabled ||
+                    (sessionid != psessionEntry->peSessionId))
 #endif
                ) {
                 limLog(pMac, LOGE,
@@ -260,20 +263,28 @@ limProcessAssocReqFrame(tpAniSirGlobal pMac, tANI_U8 *pRxPacketInfo,
    limLog(pMac, LOG1, FL("Received %s Req Frame on sessionid: %d systemrole %d"
           " limMlmState %d from: "MAC_ADDRESS_STR),
           (LIM_ASSOC == subType) ? "Assoc" : "ReAssoc",
-          psessionEntry->peSessionId, psessionEntry->limSystemRole,
+          psessionEntry->peSessionId, GET_LIM_SYSTEM_ROLE(psessionEntry),
           psessionEntry->limMlmState, MAC_ADDR_ARRAY(pHdr->sa));
 
-   if (psessionEntry->limSystemRole == eLIM_STA_ROLE || psessionEntry->limSystemRole == eLIM_BT_AMP_STA_ROLE )
-   {
+   if (LIM_IS_STA_ROLE(psessionEntry) ||
+       LIM_IS_BT_AMP_STA_ROLE(psessionEntry)) {
         limLog(pMac, LOGE, FL("received unexpected ASSOC REQ on sessionid: %d "
               "sys subType=%d for role=%d from: "MAC_ADDRESS_STR),
               psessionEntry->peSessionId,
-              subType, psessionEntry->limSystemRole, MAC_ADDR_ARRAY(pHdr->sa));
+              subType, GET_LIM_SYSTEM_ROLE(psessionEntry), MAC_ADDR_ARRAY(pHdr->sa));
         sirDumpBuf(pMac, SIR_LIM_MODULE_ID, LOG3,
         WDA_GET_RX_MPDU_DATA(pRxPacketInfo), framelen);
         return;
     }
-
+    if (psessionEntry->limMlmState == eLIM_MLM_WT_DEL_BSS_RSP_STATE) {
+        limLog(pMac, LOGE, FL("drop ASSOC REQ on sessionid: %d "
+              "role=%d from: "MAC_ADDRESS_STR" in limMlmState %d"),
+              psessionEntry->peSessionId,
+              GET_LIM_SYSTEM_ROLE(psessionEntry),
+              MAC_ADDR_ARRAY(pHdr->sa),
+              eLIM_MLM_WT_DEL_BSS_RSP_STATE);
+        return;
+    }
     /*
      * If a STA is already present in DPH and it
      * is initiating a Assoc re-transmit, do not
@@ -291,12 +302,12 @@ limProcessAssocReqFrame(tpAniSirGlobal pMac, tANI_U8 *pRxPacketInfo,
            FL("STA is initiating Assoc Req after ACK lost.So, do not Process"
            "sessionid: %d sys subType=%d for role=%d from: "MAC_ADDRESS_STR),
            psessionEntry->peSessionId,
-           subType, psessionEntry->limSystemRole, MAC_ADDR_ARRAY(pHdr->sa));
+           subType, GET_LIM_SYSTEM_ROLE(psessionEntry), MAC_ADDR_ARRAY(pHdr->sa));
 
         return;
     }
 
-    lim_check_sta_in_pe_entries(pMac, pHdr);
+    lim_check_sta_in_pe_entries(pMac, pHdr, psessionEntry->peSessionId);
 
     // Get pointer to Re/Association Request frame body
     pBody = WDA_GET_RX_MPDU_DATA(pRxPacketInfo);
@@ -329,8 +340,7 @@ limProcessAssocReqFrame(tpAniSirGlobal pMac, tANI_U8 *pRxPacketInfo,
     }
 
     // If TKIP counter measures active send Assoc Rsp frame to station with eSIR_MAC_MIC_FAILURE_REASON
-    if ((psessionEntry->bTkipCntrMeasActive) && (psessionEntry->limSystemRole == eLIM_AP_ROLE))
-    {
+    if ((psessionEntry->bTkipCntrMeasActive) && LIM_IS_AP_ROLE(psessionEntry)) {
         limLog(pMac, LOGE, FL("TKIP counter measure is active"));
         limSendAssocRspMgmtFrame(pMac,
                                     eSIR_MAC_MIC_FAILURE_REASON,
@@ -471,10 +481,9 @@ limProcessAssocReqFrame(tpAniSirGlobal pMac, tANI_U8 *pRxPacketInfo,
     }
 
 
-    if((psessionEntry->limSystemRole == eLIM_AP_ROLE ) &&
+    if (LIM_IS_AP_ROLE(psessionEntry) &&
        (psessionEntry->dot11mode == WNI_CFG_DOT11_MODE_11G_ONLY) &&
-       (pAssocReq->HTCaps.present))
-    {
+       (pAssocReq->HTCaps.present)) {
         limLog(pMac, LOGE, FL("SOFTAP was in 11G only mode, rejecting legacy "
                               "STA : "MAC_ADDRESS_STR),MAC_ADDR_ARRAY(pHdr->sa));
         limSendAssocRspMgmtFrame( pMac, eSIR_MAC_CAPABILITIES_NOT_SUPPORTED_STATUS,
@@ -483,10 +492,9 @@ limProcessAssocReqFrame(tpAniSirGlobal pMac, tANI_U8 *pRxPacketInfo,
 
     }//end if phyMode == 11G_only
 
-    if((psessionEntry->limSystemRole == eLIM_AP_ROLE) &&
+    if (LIM_IS_AP_ROLE(psessionEntry) &&
        (psessionEntry->dot11mode == WNI_CFG_DOT11_MODE_11N_ONLY) &&
-       (!pAssocReq->HTCaps.present))
-    {
+       (!pAssocReq->HTCaps.present)) {
         limLog(pMac, LOGE, FL("SOFTAP was in 11N only mode, rejecting legacy "
                               "STA : "MAC_ADDRESS_STR),MAC_ADDR_ARRAY(pHdr->sa));
         limSendAssocRspMgmtFrame( pMac, eSIR_MAC_CAPABILITIES_NOT_SUPPORTED_STATUS,
@@ -494,10 +502,9 @@ limProcessAssocReqFrame(tpAniSirGlobal pMac, tANI_U8 *pRxPacketInfo,
         goto error;
     }//end if PhyMode == 11N_only
 
-    if((psessionEntry->limSystemRole == eLIM_AP_ROLE) &&
+    if (LIM_IS_AP_ROLE(psessionEntry) &&
        (psessionEntry->dot11mode == WNI_CFG_DOT11_MODE_11AC_ONLY) &&
-       (!pAssocReq->VHTCaps.present))
-    {
+       (!pAssocReq->VHTCaps.present)) {
         limSendAssocRspMgmtFrame( pMac, eSIR_MAC_CAPABILITIES_NOT_SUPPORTED_STATUS,
                                   1, pHdr->sa, subType, 0, psessionEntry );
         limLog(pMac, LOGE, FL("SOFTAP was in 11AC only mode, reject"));
@@ -714,10 +721,9 @@ limProcessAssocReqFrame(tpAniSirGlobal pMac, tANI_U8 *pRxPacketInfo,
     if( wpsIe == NULL )
     {
         /** check whether as RSN IE is present */
-        if(psessionEntry->limSystemRole == eLIM_AP_ROLE
-            && psessionEntry->pLimStartBssReq->privacy
-            && psessionEntry->pLimStartBssReq->rsnIE.length)
-        {
+        if (LIM_IS_AP_ROLE(psessionEntry) &&
+            psessionEntry->pLimStartBssReq->privacy &&
+            psessionEntry->pLimStartBssReq->rsnIE.length) {
             limLog(pMac, LOGE,
                    FL("RSN enabled auth, Re/Assoc req from STA: "MAC_ADDRESS_STR),
                        MAC_ADDR_ARRAY(pHdr->sa));
@@ -1376,7 +1382,7 @@ if (limPopulateMatchingRateSet(pMac,
         if( pAssocReq->WMMInfoStation.present)
         {
             /* check whether AP supports or not */
-            if ((psessionEntry->limSystemRole == eLIM_AP_ROLE)
+            if (LIM_IS_AP_ROLE(psessionEntry)
                  && (psessionEntry->apUapsdEnable == 0) && (pAssocReq->WMMInfoStation.acbe_uapsd
                     || pAssocReq->WMMInfoStation.acbk_uapsd
                     || pAssocReq->WMMInfoStation.acvo_uapsd
@@ -1552,11 +1558,9 @@ if (limPopulateMatchingRateSet(pMac,
     }
 
     /* AddSta is sucess here */
-    if((psessionEntry->limSystemRole == eLIM_AP_ROLE) &&
+    if (LIM_IS_AP_ROLE(psessionEntry) &&
          IS_DOT11_MODE_HT(psessionEntry->dot11mode) &&
-       pAssocReq->HTCaps.present && pAssocReq->wmeInfoPresent)
-    {
-
+       pAssocReq->HTCaps.present && pAssocReq->wmeInfoPresent) {
         /** Update in the HAL Station Table for the Update of the Protection Mode */
         limPostSMStateUpdate(pMac,pStaDs->staIndex,
                     pStaDs->htMIMOPSState,

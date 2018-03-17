@@ -811,6 +811,132 @@ limCleanup(tpAniSirGlobal pMac)
 } /*** end limCleanup() ***/
 
 
+#ifdef WLAN_FEATURE_11W
+/**
+ * lim_is_assoc_req_for_drop()- function to decides to drop assoc\reassoc
+ *  frames.
+ * @mac: pointer to global mac structure
+ * @rx_pkt_info: rx packet meta information
+ *
+ * This function is called before enqueuing the frame to PE queue to
+ * drop flooded assoc/reassoc frames getting into PE Queue.
+ *
+ * Return: true for dropping the frame otherwise false
+ */
+
+bool lim_is_assoc_req_for_drop(tpAniSirGlobal mac, uint8_t *rx_pkt_info)
+{
+	uint8_t session_id;
+	uint16_t aid;
+	tpPESession session_entry;
+	tpSirMacMgmtHdr mac_hdr;
+	tpDphHashNode sta_ds;
+
+	mac_hdr = WDA_GET_RX_MAC_HEADER(rx_pkt_info);
+	session_entry = peFindSessionByBssid(mac, mac_hdr->bssId, &session_id);
+	if (!session_entry) {
+		PELOG1(limLog(pMac, LOG1,
+			FL("session does not exist for given STA [%pM]"),
+			mac_hdr->sa););
+		return false;
+	}
+
+	sta_ds = dphLookupHashEntry(mac, mac_hdr->sa, &aid,
+				&session_entry->dph.dphHashTable);
+	if (!sta_ds) {
+		PELOG1(limLog(pMac, LOG1, FL("pStaDs is NULL")););
+		return false;
+	}
+
+	if (!sta_ds->rmfEnabled)
+		return false;
+
+	if (sta_ds->pmfSaQueryState == DPH_SA_QUERY_IN_PROGRESS)
+		return true;
+
+	if (sta_ds->last_assoc_received_time &&
+		((vos_timer_get_system_time() -
+			 sta_ds->last_assoc_received_time) < 1000))
+		return true;
+
+	sta_ds->last_assoc_received_time = vos_timer_get_system_time();
+	return false;
+}
+#endif
+/**
+ * lim_is_deauth_diassoc_for_drop()- function to decides to drop deauth\diassoc
+ *  frames.
+ * @mac: pointer to global mac structure
+ * @rx_pkt_info: rx packet meta information
+ *
+ * This function is called before enqueuing the frame to PE queue to
+ * drop flooded deauth/diassoc frames getting into PE Queue.
+ *
+ * Return: true for dropping the frame otherwise false
+ */
+
+bool lim_is_deauth_diassoc_for_drop(tpAniSirGlobal mac, uint8_t *rx_pkt_info)
+{
+	uint8_t session_id;
+	uint16_t aid;
+	tpPESession session_entry;
+	tpSirMacMgmtHdr mac_hdr;
+	tpDphHashNode   sta_ds;
+
+	mac_hdr = WDA_GET_RX_MAC_HEADER(rx_pkt_info);
+	session_entry = peFindSessionByBssid(mac, mac_hdr->bssId, &session_id);
+	if (!session_entry) {
+		PELOG1(limLog(mac, LOG1,
+			FL("session does not exist for given STA [%pM]"),
+			mac_hdr->sa););
+		return true;
+	}
+
+	sta_ds = dphLookupHashEntry(mac, mac_hdr->sa, &aid,
+					&session_entry->dph.dphHashTable);
+	if (!sta_ds) {
+		PELOG1(limLog(mac, LOG1,FL("pStaDs is NULL")););
+		return true;
+	}
+
+#ifdef WLAN_FEATURE_11W
+	if (session_entry->limRmfEnabled) {
+		if ((WDA_GET_RX_DPU_FEEDBACK(rx_pkt_info) &
+			DPU_FEEDBACK_UNPROTECTED_ERROR)) {
+			/* It may be possible that deauth/diassoc frames from a
+			 * spoofy AP is received. So if all further
+			 * deauth/diassoc frmaes are dropped, then it may
+			 * result in lossing deauth/diassoc frames from genuine
+			 * AP. So process all deauth/diassoc frames with
+			 * a time difference of 1 sec.
+			 */
+			if ((vos_timer_get_system_time() -
+				 sta_ds->last_unprot_deauth_disassoc) < 1000)
+				return true;
+
+			sta_ds->last_unprot_deauth_disassoc =
+					vos_timer_get_system_time();
+		} else {
+			/* PMF enabed, Management frames are protected */
+			if (sta_ds->proct_deauh_disassoc_cnt)
+				return true;
+			else
+				sta_ds->proct_deauh_disassoc_cnt++;
+		}
+	}
+	else
+#endif
+	/* PMF disabled */
+	{
+		if (sta_ds->isDisassocDeauthInProgress)
+			return true;
+		else
+			sta_ds->isDisassocDeauthInProgress++;
+	}
+
+	return false;
+}
+
 /** -------------------------------------------------------------
 \fn peOpen
 \brief will be called in Open sequence from macOpen
@@ -1107,6 +1233,21 @@ limPostMsgApi(tpAniSirGlobal pMac, tSirMsgQ *pMsg)
 
 } /*** end limPostMsgApi() ***/
 
+/**
+ * lim_post_msg_high_pri() - posts high priority pe message
+ * @mac: mac context
+ * @msg: message to be posted
+ *
+ * This function is used to post high priority pe message
+ *
+ * Return: returns value returned by vos_mq_post_message_by_priority
+ */
+uint32_t
+lim_post_msg_high_pri(tpAniSirGlobal mac, tSirMsgQ *msg)
+{
+	return vos_mq_post_message_by_priority(VOS_MQ_ID_PE, (vos_msg_t *)msg,
+					       HIGH_PRIORITY);
+}
 
 /*--------------------------------------------------------------------------
 
@@ -1143,13 +1284,12 @@ tSirRetStatus pePostMsgApi(tpAniSirGlobal pMac, tSirMsgQ *pMsg)
 
 tSirRetStatus peProcessMessages(tpAniSirGlobal pMac, tSirMsgQ* pMsg)
 {
-   if(pMac->gDriverType == eDRIVER_TYPE_MFG)
-   {
+   if (ANI_DRIVER_TYPE(pMac) == eDRIVER_TYPE_MFG) {
       return eSIR_SUCCESS;
    }
    /**
-    *   If the Message to be handled is for CFG Module call the CFG Msg Handler and
-    *   for all the other cases post it to LIM
+    * If the Message to be handled is for CFG Module call the CFG Msg Handler
+    * and for all the other cases post it to LIM
     */
     if ( SIR_CFG_PARAM_UPDATE_IND != pMsg->type && IS_CFG_MSG(pMsg->type))
         cfgProcessMbMsg(pMac, (tSirMbMsg*)pMsg->bodyptr);
@@ -2227,7 +2367,7 @@ void limRoamOffloadSynchInd(tpAniSirGlobal pMac, tpSirMsgQ pMsg)
        return;
      }
      /* Nothing to be done if the session is not in STA mode */
-     if (eLIM_STA_ROLE != psessionEntry->limSystemRole) {
+     if (!LIM_IS_STA_ROLE(psessionEntry)) {
         PELOGE(limLog(pMac, LOGE, FL("psessionEntry is not in STA mode"));)
         return;
      }
@@ -2441,6 +2581,17 @@ tMgmtFrmDropReason limIsPktCandidateForDrop(tpAniSirGlobal pMac, tANI_U8 *pRxPac
     framelen = WDA_GET_RX_PAYLOAD_LEN(pRxPacketInfo);
     pBody    = WDA_GET_RX_MPDU_DATA(pRxPacketInfo);
 
+    if ((subType == SIR_MAC_MGMT_DEAUTH ||
+         subType == SIR_MAC_MGMT_DISASSOC) &&
+        lim_is_deauth_diassoc_for_drop(pMac, pRxPacketInfo))
+        return eMGMT_DROP_SPURIOUS_FRAME;
+
+#ifdef WLAN_FEATURE_11W
+    if ((subType == SIR_MAC_MGMT_ASSOC_REQ ||
+         subType == SIR_MAC_MGMT_REASSOC_REQ) &&
+        lim_is_assoc_req_for_drop(pMac, pRxPacketInfo))
+        return eMGMT_DROP_SPURIOUS_FRAME;
+#endif
     //Drop INFRA Beacons and Probe Responses in IBSS Mode
     if( (subType == SIR_MAC_MGMT_BEACON) ||
         (subType == SIR_MAC_MGMT_PROBE_RSP))
@@ -2466,9 +2617,8 @@ tMgmtFrmDropReason limIsPktCandidateForDrop(tpAniSirGlobal pMac, tANI_U8 *pRxPac
     {
         pHdr = WDA_GET_RX_MAC_HEADER(pRxPacketInfo);
         psessionEntry = peFindSessionByBssid(pMac, pHdr->bssId, &sessionId);
-        if ((psessionEntry &&
-                    psessionEntry->limSystemRole != eLIM_STA_IN_IBSS_ROLE) ||
-                (!psessionEntry))
+        if ((psessionEntry && !LIM_IS_IBSS_ROLE(psessionEntry)) ||
+            (!psessionEntry))
             return eMGMT_DROP_NO_DROP;
 
         //Drop the Probe Request in IBSS mode, if STA did not send out the last beacon

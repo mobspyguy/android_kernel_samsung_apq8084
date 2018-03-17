@@ -112,9 +112,7 @@ int wlan_hdd_ftm_start(hdd_context_t *pAdapter);
 #endif
 #include "qwlan_version.h"
 #include "wlan_qct_wda.h"
-#ifdef FEATURE_WLAN_TDLS
 #include "wlan_hdd_tdls.h"
-#endif
 #ifdef FEATURE_WLAN_CH_AVOID
 #ifdef CONFIG_CNSS
 #include <net/cnss.h>
@@ -679,11 +677,13 @@ static void wlan_hdd_restart_sap(hdd_adapter_t *ap_adapter)
             hdd_hostapd_SAPEventCB, &pHddApCtx->sapConfig,
             (v_PVOID_t)ap_adapter->dev) != VOS_STATUS_SUCCESS) {
             hddLog(LOGE, FL("SAP Start Bss fail"));
+            WLANSAP_ResetSapConfigAddIE(pConfig, eUPDATE_IE_ALL);
             goto end;
         }
 
         hddLog(LOG1, FL("Waiting for SAP to start"));
         vos_status = vos_wait_single_event(&pHostapdState->vosEvent, 10000);
+        WLANSAP_ResetSapConfigAddIE(pConfig, eUPDATE_IE_ALL);
         if (!VOS_IS_STATUS_SUCCESS(vos_status)) {
             hddLog(LOGE, FL("SAP Start failed"));
             goto end;
@@ -1838,7 +1838,7 @@ static int hdd_parse_setrmcrate_command(tANI_U8 *pValue,
     /*
      * getting the first argument which sets multicast rate.
      */
-    sscanf(inPtr, "%32s ", buf);
+    sscanf(inPtr, "%31s ", buf);
     v = kstrtos32(buf, 10, &tempInt);
     if ( v < 0)
     {
@@ -3122,7 +3122,6 @@ static int hdd_driver_command(hdd_adapter_t *pAdapter,
        else if (strncmp(command, "SETBAND", 7) == 0)
        {
            tANI_U8 *ptr = command ;
-           int ret = 0 ;
 
            /* Change band request received */
 
@@ -3425,7 +3424,7 @@ static int hdd_driver_command(hdd_adapter_t *pAdapter,
 	   value = value + SIZE_OF_SETROAMMODE + 1;
 
 	   /* Convert the value from ascii to integer */
-	   ret = kstrtou8(value, SIZE_OF_SETROAMMODE, &roamMode);
+	   ret = kstrtou8(value, 10, &roamMode);
 	   if (ret < 0)
 	   {
 	      /* If the input value is greater than max value of datatype, then also
@@ -3624,7 +3623,7 @@ static int hdd_driver_command(hdd_adapter_t *pAdapter,
            [Number of roam scan channels][Channel1][Channel2]... */
            /* copy the number of channels in the 0th index */
            len = scnprintf(extra, sizeof(extra), "%s %d", command, numChannels);
-           for (j = 0; (j < numChannels); j++)
+           for (j = 0; (j < numChannels) && len <= sizeof(extra); j++)
            {
                len += scnprintf(extra + len, sizeof(extra) - len, " %d",
                        ChannelList[j]);
@@ -5734,8 +5733,10 @@ static void hdd_update_tgt_services(hdd_context_t *hdd_ctx,
     pMac->lteCoexAntShare = cfg->lte_coex_ant_share;
 #ifdef FEATURE_WLAN_TDLS
     cfg_ini->fEnableTDLSSupport &= cfg->en_tdls;
-    cfg_ini->fEnableTDLSOffChannel &= cfg->en_tdls_offchan;
-    cfg_ini->fEnableTDLSBufferSta &= cfg->en_tdls_uapsd_buf_sta;
+    cfg_ini->fEnableTDLSOffChannel = cfg_ini->fEnableTDLSOffChannel &&
+                                     cfg->en_tdls_offchan;
+    cfg_ini->fEnableTDLSBufferSta = cfg_ini->fEnableTDLSOffChannel &&
+                                    cfg->en_tdls_uapsd_buf_sta;
     if (cfg_ini->fTDLSUapsdMask && cfg->en_tdls_uapsd_sleep_sta)
     {
         cfg_ini->fEnableTDLSSleepSta = TRUE;
@@ -6925,12 +6926,33 @@ static int hdd_open(struct net_device *dev)
 	return ret;
 }
 
-
-int hdd_mon_open (struct net_device *dev)
+/**
+ * __hdd_mon_open() - HDD monitor open
+ * @dev: pointer to net_device
+ *
+ * Return: 0 for success and error number for failure
+ */
+static int __hdd_mon_open(struct net_device *dev)
 {
-   netif_start_queue(dev);
+	netif_start_queue(dev);
+	return 0;
+}
 
-   return 0;
+/**
+ * hdd_mon_open() - SSR wrapper function for __hdd_mon_open
+ * @dev: pointer to net_device
+ *
+ * Return: 0 for success and error number for failure
+ */
+static int hdd_mon_open(struct net_device *dev)
+{
+	int ret;
+
+	vos_ssr_protect(__func__);
+	ret = __hdd_mon_open(dev);
+	vos_ssr_unprotect(__func__);
+
+	return ret;
 }
 
 #ifdef MODULE
@@ -7841,14 +7863,7 @@ void hdd_deinit_adapter(hdd_context_t *pHddCtx, hdd_adapter_t *pAdapter,
          }
 
          hdd_cleanup_actionframe(pHddCtx, pAdapter);
-#ifdef FEATURE_WLAN_TDLS
-         if(test_bit(TDLS_INIT_DONE, &pAdapter->event_flags))
-         {
-            wlan_hdd_tdls_exit(pAdapter);
-            clear_bit(TDLS_INIT_DONE, &pAdapter->event_flags);
-         }
-#endif
-
+         wlan_hdd_tdls_exit(pAdapter);
          break;
       }
 
@@ -9769,18 +9784,13 @@ v_U8_t hdd_get_operating_channel( hdd_context_t *pHddCtx, device_mode_t mode )
 }
 
 #ifdef WLAN_FEATURE_PACKET_FILTERING
-/**---------------------------------------------------------------------------
-
-  \brief hdd_set_multicast_list() -
-
-  This used to set the multicast address list.
-
-  \param  - dev - Pointer to the WLAN device.
-  - skb - Pointer to OS packet (sk_buff).
-  \return - success/fail
-
-  --------------------------------------------------------------------------*/
-static void hdd_set_multicast_list(struct net_device *dev)
+/**
+ * __hdd_set_multicast_list() - set the multicast address list
+ * @dev: pointer to net_device
+ *
+ * Return: none
+ */
+static void __hdd_set_multicast_list(struct net_device *dev)
 {
    static const uint8_t ipv6_router_solicitation[] =
                          {0x33, 0x33, 0x00, 0x00, 0x00, 0x02};
@@ -9850,6 +9860,19 @@ static void hdd_set_multicast_list(struct net_device *dev)
    /* Configure the updated multicast address list */
    wlan_hdd_set_mc_addr_list(pAdapter, true);
    return;
+}
+
+/**
+ * hdd_set_multicast_list() - SSR wrapper function for __hdd_set_multicast_list
+ * @dev: pointer to net_device
+ *
+ * Return: none
+ */
+static void hdd_set_multicast_list(struct net_device *dev)
+{
+	vos_ssr_protect(__func__);
+	__hdd_set_multicast_list(dev);
+	vos_ssr_unprotect(__func__);
 }
 #endif
 

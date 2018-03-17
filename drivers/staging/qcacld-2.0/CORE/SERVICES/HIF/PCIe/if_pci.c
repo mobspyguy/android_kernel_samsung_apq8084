@@ -891,7 +891,8 @@ static int __hif_pci_runtime_suspend(struct pci_dev *pdev)
 		goto out;
 	}
 
-	if ((test = ol_txrx_get_tx_pending(txrx_pdev))) {
+	if ((test = ol_txrx_get_tx_pending(txrx_pdev)) ||
+		 ol_txrx_get_queue_status(txrx_pdev)) {
 		pr_err("%s: txrx pending(%d), get: %u, put: %u\n", __func__,
 				test,
 				sc->pm_stats.runtime_get,
@@ -2305,7 +2306,8 @@ __hif_pci_suspend(struct pci_dev *pdev, pm_message_t state, bool runtime_pm)
         goto out;
     }
     /* Wait for pending tx completion */
-    while (ol_txrx_get_tx_pending(txrx_pdev)) {
+    while (ol_txrx_get_tx_pending(txrx_pdev) ||
+           ol_txrx_get_queue_status(txrx_pdev)) {
         msleep(OL_ATH_TX_DRAIN_WAIT_DELAY);
         if (++tx_drain_wait_cnt > OL_ATH_TX_DRAIN_WAIT_CNT) {
             printk("%s: tx frames are pending\n", __func__);
@@ -2364,6 +2366,7 @@ __hif_pci_suspend(struct pci_dev *pdev, pm_message_t state, bool runtime_pm)
     if (wma_get_client_count(temp_module)) {
         if (enable_irq_wake(pdev->irq)) {
             pr_err("%s: Fail to enable wake IRQ!\n", __func__);
+            HIFCancelDeferredTargetSleep(sc->hif_device);
             ret = -EAGAIN;
             goto out;
         }
@@ -2374,13 +2377,12 @@ __hif_pci_suspend(struct pci_dev *pdev, pm_message_t state, bool runtime_pm)
     }
 #endif
 
-    adf_os_spin_lock_irqsave(&hif_state->suspend_lock);
-
-    /*Disable PCIe interrupts*/
-    if (HIFTargetSleepStateAdjust(targid, FALSE, TRUE) < 0) {
-        adf_os_spin_unlock_irqrestore(&hif_state->suspend_lock);
+    /* Wakeup ROME to disable PCIe interrupts */
+    if (HIFTargetSleepStateAdjust(targid, FALSE, TRUE) < 0)
         goto out;
-    }
+
+    /* Acquire lock to access shared register */
+    adf_os_spin_lock_irqsave(&hif_state->suspend_lock);
     A_PCI_WRITE32(sc->mem+(SOC_CORE_BASE_ADDRESS | PCIE_INTR_ENABLE_ADDRESS), 0);
     A_PCI_WRITE32(sc->mem+(SOC_CORE_BASE_ADDRESS | PCIE_INTR_CLR_ADDRESS),
                   PCIE_INTR_FIRMWARE_MASK | PCIE_INTR_CE_MASK_ALL);
@@ -2391,17 +2393,16 @@ __hif_pci_suspend(struct pci_dev *pdev, pm_message_t state, bool runtime_pm)
          VOS_ASSERT(0);
     }
 
+    /* Put ROME to sleep */
     if (HIFTargetSleepStateAdjust(targid, TRUE, FALSE) < 0) {
         adf_os_spin_unlock_irqrestore(&hif_state->suspend_lock);
         goto out;
     }
-
     /* Stop the HIF Sleep Timer */
     HIFCancelDeferredTargetSleep(sc->hif_device);
 
     adf_os_atomic_set(&sc->pci_link_suspended, 1);
-
-    adf_os_spin_unlock_irqrestore( &hif_state->suspend_lock);
+    adf_os_spin_unlock_irqrestore(&hif_state->suspend_lock);
 
 #ifdef CONFIG_CNSS
     /* Keep PCIe bus driver's shadow memory intact */

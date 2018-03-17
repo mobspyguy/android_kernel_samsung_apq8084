@@ -79,22 +79,28 @@
  */
 
 
-static inline unsigned int isAuthValid(tpAniSirGlobal pMac, tpSirMacAuthFrameBody auth,tpPESession sessionEntry) {
-    unsigned int valid;
-    valid=1;
+static inline unsigned int
+isAuthValid(tpAniSirGlobal pMac, tpSirMacAuthFrameBody auth,
+            tpPESession sessionEntry)
+{
+    unsigned int valid = 1;
 
-    if (  ((auth->authTransactionSeqNumber==SIR_MAC_AUTH_FRAME_1)||
-           (auth->authTransactionSeqNumber==SIR_MAC_AUTH_FRAME_3)) &&
-          ((sessionEntry->limSystemRole == eLIM_STA_ROLE)||(sessionEntry->limSystemRole == eLIM_BT_AMP_STA_ROLE)))
-        valid=0;
+    if (((auth->authTransactionSeqNumber == SIR_MAC_AUTH_FRAME_1) ||
+         (auth->authTransactionSeqNumber == SIR_MAC_AUTH_FRAME_3)) &&
+         (LIM_IS_STA_ROLE(sessionEntry) ||
+          LIM_IS_BT_AMP_STA_ROLE(sessionEntry)))
+        valid = 0;
 
-    if ( ((auth->authTransactionSeqNumber==SIR_MAC_AUTH_FRAME_2)||(auth->authTransactionSeqNumber==SIR_MAC_AUTH_FRAME_4))&&
-         ((sessionEntry->limSystemRole == eLIM_AP_ROLE)||(sessionEntry->limSystemRole == eLIM_BT_AMP_AP_ROLE)))
-        valid=0;
+    if (((auth->authTransactionSeqNumber == SIR_MAC_AUTH_FRAME_2) ||
+         (auth->authTransactionSeqNumber == SIR_MAC_AUTH_FRAME_4)) &&
+         (LIM_IS_AP_ROLE(sessionEntry) || LIM_IS_BT_AMP_AP_ROLE(sessionEntry)))
+        valid = 0;
 
-    if ( ((auth->authTransactionSeqNumber==SIR_MAC_AUTH_FRAME_3)||(auth->authTransactionSeqNumber==SIR_MAC_AUTH_FRAME_4))&&
-         (auth->type!=SIR_MAC_CHALLENGE_TEXT_EID)&&(auth->authAlgoNumber != eSIR_SHARED_KEY))
-        valid=0;
+    if (((auth->authTransactionSeqNumber == SIR_MAC_AUTH_FRAME_3) ||
+         (auth->authTransactionSeqNumber == SIR_MAC_AUTH_FRAME_4)) &&
+         (auth->type != SIR_MAC_CHALLENGE_TEXT_EID) &&
+         (auth->authAlgoNumber != eSIR_SHARED_KEY))
+        valid = 0;
 
     return valid;
 }
@@ -188,7 +194,7 @@ limProcessAuthFrame(tpAniSirGlobal pMac, tANI_U8 *pRxPacketInfo, tpPESession pse
     limLog(pMac, LOG1,
                FL("Sessionid: %d System role : %d limMlmState: %d :Auth "
                "Frame Received: BSSID: "MAC_ADDRESS_STR " (RSSI %d)"),
-               psessionEntry->peSessionId, psessionEntry->limSystemRole,
+               psessionEntry->peSessionId, GET_LIM_SYSTEM_ROLE(psessionEntry),
                psessionEntry->limMlmState, MAC_ADDR_ARRAY(pHdr->bssId),
               (uint)abs((tANI_S8)WDA_GET_RX_RSSI_NORMALIZED(pRxPacketInfo)));
 
@@ -214,19 +220,13 @@ limProcessAuthFrame(tpAniSirGlobal pMac, tANI_U8 *pRxPacketInfo, tpPESession pse
         goto free;
     }
 
-    encrAuthFrame = vos_mem_malloc(LIM_ENCR_AUTH_BODY_LEN);
-    if (!encrAuthFrame) {
-        limLog(pMac, LOGE, FL("failed to allocate memory"));
-        goto free;
-    }
-
     plainBody = vos_mem_malloc(LIM_ENCR_AUTH_BODY_LEN);
     if (!plainBody) {
         limLog(pMac, LOGE, FL("failed to allocate memory"));
         goto free;
     }
 
-    challengeTextArray = vos_mem_malloc(SIR_MAC_AUTH_CHALLENGE_LENGTH);
+    challengeTextArray = vos_mem_malloc(SIR_MAC_SAP_AUTH_CHALLENGE_LENGTH);
     if(!challengeTextArray) {
         limLog(pMac, LOGE, FL("failed to allocate memory"));
         goto free;
@@ -234,9 +234,8 @@ limProcessAuthFrame(tpAniSirGlobal pMac, tANI_U8 *pRxPacketInfo, tpPESession pse
 
     vos_mem_set(rxAuthFrame, sizeof(tSirMacAuthFrameBody), 0);
     vos_mem_set(authFrame, sizeof(tSirMacAuthFrameBody), 0);
-    vos_mem_set(encrAuthFrame, LIM_ENCR_AUTH_BODY_LEN, 0);
     vos_mem_set(plainBody, LIM_ENCR_AUTH_BODY_LEN, 0);
-    vos_mem_set(challengeTextArray, SIR_MAC_AUTH_CHALLENGE_LENGTH, 0);
+    vos_mem_set(challengeTextArray, SIR_MAC_SAP_AUTH_CHALLENGE_LENGTH, 0);
 
     /// Determine if WEP bit is set in the FC or received MAC header
     if (pHdr->fc.wep)
@@ -246,8 +245,8 @@ limProcessAuthFrame(tpAniSirGlobal pMac, tANI_U8 *pRxPacketInfo, tpPESession pse
          */
 
         // If TKIP counter measures enabled issue Deauth frame to station
-        if ((psessionEntry->bTkipCntrMeasActive) && (psessionEntry->limSystemRole == eLIM_AP_ROLE))
-        {
+        if ((psessionEntry->bTkipCntrMeasActive) &&
+             LIM_IS_AP_ROLE(psessionEntry)) {
             PELOGE( limLog(pMac, LOGE,
                FL("Tkip counter measures Enabled, sending Deauth frame to")); )
             limPrintMacAddr(pMac, pHdr->sa, LOGE);
@@ -270,16 +269,16 @@ limProcessAuthFrame(tpAniSirGlobal pMac, tANI_U8 *pRxPacketInfo, tpPESession pse
          * Out-of-sequence-Authentication-Frame status code.
          */
 
-        if (psessionEntry->limSystemRole == eLIM_STA_ROLE || psessionEntry->limSystemRole == eLIM_BT_AMP_STA_ROLE)
-        {
+        if (LIM_IS_STA_ROLE(psessionEntry) ||
+            LIM_IS_BT_AMP_STA_ROLE(psessionEntry)) {
             authFrame->authAlgoNumber = eSIR_SHARED_KEY;
             authFrame->authTransactionSeqNumber = SIR_MAC_AUTH_FRAME_4;
             authFrame->authStatusCode = eSIR_MAC_CHALLENGE_FAILURE_STATUS;
             // Log error
             PELOGE(limLog(pMac, LOGE,
-                   FL("received Authentication frame with wep bit set on role=%d "
-                      MAC_ADDRESS_STR), psessionEntry->limSystemRole,
-                      MAC_ADDR_ARRAY(pHdr->sa) );)
+                   FL("received Authentication frame with wep bit set on role=%d"
+                   MAC_ADDRESS_STR), GET_LIM_SYSTEM_ROLE(psessionEntry),
+                   MAC_ADDR_ARRAY(pHdr->sa));)
 
             limSendAuthMgmtFrame(pMac, authFrame,
                                  pHdr->sa,
@@ -289,7 +288,8 @@ limProcessAuthFrame(tpAniSirGlobal pMac, tANI_U8 *pRxPacketInfo, tpPESession pse
             goto free;
         }
 
-        if (frameLen < LIM_ENCR_AUTH_BODY_LEN)
+        if ((frameLen < LIM_ENCR_AUTH_BODY_LEN_SAP) ||
+            (frameLen > LIM_ENCR_AUTH_BODY_LEN))
         {
             // Log error
             limLog(pMac, LOGE,
@@ -299,8 +299,7 @@ limProcessAuthFrame(tpAniSirGlobal pMac, tANI_U8 *pRxPacketInfo, tpPESession pse
 
             goto free;
         }
-        if(psessionEntry->limSystemRole == eLIM_AP_ROLE)
-        {
+        if (LIM_IS_AP_ROLE(psessionEntry)) {
             val = psessionEntry->privacy;
         }
         else
@@ -470,17 +469,14 @@ limProcessAuthFrame(tpAniSirGlobal pMac, tANI_U8 *pRxPacketInfo, tpPESession pse
 
                 val = SIR_MAC_KEY_LENGTH;
 
-                if(psessionEntry->limSystemRole == eLIM_AP_ROLE)
-                {
+                if (LIM_IS_AP_ROLE(psessionEntry)) {
                     tpSirKeys pKey;
                     pKey =  &psessionEntry->WEPKeyMaterial[keyId].key[0];
                     vos_mem_copy(defaultKey, pKey->key, pKey->keyLength);
                     val = pKey->keyLength;
-                }
-                else
-                if (wlan_cfgGetStr(pMac, (tANI_U16) (WNI_CFG_WEP_DEFAULT_KEY_1 + keyId),
-                              defaultKey, &val) != eSIR_SUCCESS)
-                {
+                } else if (wlan_cfgGetStr(pMac,
+                             (tANI_U16) (WNI_CFG_WEP_DEFAULT_KEY_1 + keyId),
+                              defaultKey, &val) != eSIR_SUCCESS) {
                     /// Could not get Default key from CFG.
                     //Log error.
                     limLog(pMac, LOGP,
@@ -638,8 +634,8 @@ limProcessAuthFrame(tpAniSirGlobal pMac, tANI_U8 *pRxPacketInfo, tpPESession pse
 
                 /* pStaDS != NULL and isConnected = 1 means the STA is already
                  * connected, But SAP received the Auth from that station.
-                 * For non PMF connection send Deauth frame as STA will retry
-                 * to connect back.
+                 * For non PMF connection, just delete the STA here as it will
+                 * retry to connect back after timeout.
                  *
                  * For PMF connection the AP should not tear down or otherwise
                  * modify the state of the existing association until the
@@ -657,8 +653,6 @@ limProcessAuthFrame(tpAniSirGlobal pMac, tANI_U8 *pRxPacketInfo, tpPESession pse
                                 "Send the Deauth and lim Delete Station Context"
                                 "(staId: %d, assocId: %d) "),
                             pStaDs->staIndex, assocId);
-                    limSendDeauthMgmtFrame(pMac, eSIR_MAC_UNSPEC_FAILURE_REASON,
-                            (tANI_U8 *) pHdr->sa, psessionEntry, FALSE);
                     limTriggerSTAdeletion(pMac, pStaDs, psessionEntry);
                     goto free;
                 }
@@ -683,7 +677,7 @@ limProcessAuthFrame(tpAniSirGlobal pMac, tANI_U8 *pRxPacketInfo, tpPESession pse
                                                     eLIM_AUTH_RSP_TIMER,
                                                     pAuthNode->authNodeIdx);
                     }
-                    PELOGE(limLog(pMac, LOGE, FL("STA is initiating brand-new Authentication ..."));)
+                    limLog(pMac, LOGW, FL("STA is initiating brand-new Authentication ..."));
                     limDeletePreAuthNode(pMac,
                                          pHdr->sa);
                     /**
@@ -732,7 +726,7 @@ limProcessAuthFrame(tpAniSirGlobal pMac, tANI_U8 *pRxPacketInfo, tpPESession pse
                      * but ACK lost at STA side, in this case 2nd auth frame is already
                      * in transmission queue
                      * */
-                    PELOGE(limLog(pMac, LOGE, FL("STA is initiating Authentication after ACK lost..."));)
+                    limLog(pMac, LOGW, FL("STA is initiating Authentication after ACK lost..."));
                     goto free;
                 }
             }
@@ -838,14 +832,10 @@ limProcessAuthFrame(tpAniSirGlobal pMac, tANI_U8 *pRxPacketInfo, tpPESession pse
 
                     case eSIR_SHARED_KEY:
                         PELOGW(limLog(pMac, LOGW, FL("=======> eSIR_SHARED_KEY  ..."));)
-                        if(psessionEntry->limSystemRole == eLIM_AP_ROLE)
-                        {
+                        if (LIM_IS_AP_ROLE(psessionEntry)) {
                             val = psessionEntry->privacy;
-                        }
-                        else
-                        if (wlan_cfgGetInt(pMac, WNI_CFG_PRIVACY_ENABLED,
-                                      &val) != eSIR_SUCCESS)
-                        {
+                        } else if (wlan_cfgGetInt(pMac, WNI_CFG_PRIVACY_ENABLED,
+                                      &val) != eSIR_SUCCESS) {
                             /**
                              * Could not get Privacy option
                              * from CFG. Log error.
@@ -955,7 +945,7 @@ limProcessAuthFrame(tpAniSirGlobal pMac, tANI_U8 *pRxPacketInfo, tpPESession pse
                             /*
                              * get random bytes and use as challenge text
                              */
-                            if( !VOS_IS_STATUS_SUCCESS( vos_rand_get_bytes( 0, (tANI_U8 *)challengeTextArray, SIR_MAC_AUTH_CHALLENGE_LENGTH ) ) )
+                            if( !VOS_IS_STATUS_SUCCESS( vos_rand_get_bytes( 0, (tANI_U8 *)challengeTextArray, SIR_MAC_SAP_AUTH_CHALLENGE_LENGTH ) ) )
                             {
                                limLog(pMac, LOGE,FL("Challenge text preparation failed in limProcessAuthFrame"));
                                goto free;
@@ -978,10 +968,10 @@ limProcessAuthFrame(tpAniSirGlobal pMac, tANI_U8 *pRxPacketInfo, tpPESession pse
                             authFrame->authStatusCode =
                             eSIR_MAC_SUCCESS_STATUS;
                             authFrame->type   = SIR_MAC_CHALLENGE_TEXT_EID;
-                            authFrame->length = SIR_MAC_AUTH_CHALLENGE_LENGTH;
+                            authFrame->length = SIR_MAC_SAP_AUTH_CHALLENGE_LENGTH;
                             vos_mem_copy(authFrame->challengeText,
                                          pAuthNode->challengeText,
-                                         SIR_MAC_AUTH_CHALLENGE_LENGTH);
+                                         SIR_MAC_SAP_AUTH_CHALLENGE_LENGTH);
 
                             limSendAuthMgmtFrame(
                                                 pMac, authFrame,
@@ -1063,8 +1053,8 @@ limProcessAuthFrame(tpAniSirGlobal pMac, tANI_U8 *pRxPacketInfo, tpPESession pse
                  * Check if a Reassociation is in progress and this is a
                  * Pre-Auth frame
                  */
-                if (((psessionEntry->limSystemRole == eLIM_STA_ROLE) ||
-                     (psessionEntry->limSystemRole == eLIM_BT_AMP_STA_ROLE)) &&
+                if ((LIM_IS_STA_ROLE(psessionEntry) ||
+                     LIM_IS_BT_AMP_STA_ROLE(psessionEntry)) &&
                     (psessionEntry->limSmeState == eLIM_SME_WT_REASSOC_STATE) &&
                     (pRxAuthFrameBody->authStatusCode == eSIR_MAC_SUCCESS_STATUS) &&
                     (psessionEntry->ftPEContext.pFTPreAuthReq != NULL) &&
@@ -1196,14 +1186,10 @@ limProcessAuthFrame(tpAniSirGlobal pMac, tANI_U8 *pRxPacketInfo, tpPESession pse
                 {
                     // Shared key authentication
 
-                    if(psessionEntry->limSystemRole == eLIM_AP_ROLE)
-                    {
+                    if (LIM_IS_AP_ROLE(psessionEntry)) {
                         val = psessionEntry->privacy;
-                    }
-                    else
-                    if (wlan_cfgGetInt(pMac, WNI_CFG_PRIVACY_ENABLED,
-                                  &val) != eSIR_SUCCESS)
-                    {
+                    } else if (wlan_cfgGetInt(pMac, WNI_CFG_PRIVACY_ENABLED,
+                                  &val) != eSIR_SUCCESS) {
                         /**
                          * Could not get Privacy option
                          * from CFG. Log error.
@@ -1347,18 +1333,13 @@ limProcessAuthFrame(tpAniSirGlobal pMac, tANI_U8 *pRxPacketInfo, tpPESession pse
 
                             val = SIR_MAC_KEY_LENGTH;
 
-                            if(psessionEntry->limSystemRole == eLIM_AP_ROLE)
-                            {
+                            if (LIM_IS_AP_ROLE(psessionEntry)) {
                                 tpSirKeys pKey;
                                 pKey =  &psessionEntry->WEPKeyMaterial[keyId].key[0];
                                 vos_mem_copy(defaultKey, pKey->key, pKey->keyLength);
-                            }
-                            else
-                            if (wlan_cfgGetStr(pMac, (tANI_U16) (WNI_CFG_WEP_DEFAULT_KEY_1 + keyId),
-                                          defaultKey,
-                                          &val)
-                                != eSIR_SUCCESS)
-                            {
+                            } else if (wlan_cfgGetStr(pMac,
+                                      (tANI_U16) (WNI_CFG_WEP_DEFAULT_KEY_1 + keyId),
+                                       defaultKey, &val) != eSIR_SUCCESS) {
                                 /// Could not get Default key from CFG.
                                 //Log error.
                                 limLog(pMac, LOGP,
@@ -1474,9 +1455,9 @@ limProcessAuthFrame(tpAniSirGlobal pMac, tANI_U8 *pRxPacketInfo, tpPESession pse
                 goto free;
             }
 
-            if (psessionEntry->limSystemRole == eLIM_AP_ROLE || psessionEntry->limSystemRole == eLIM_BT_AMP_AP_ROLE ||
-                psessionEntry->limSystemRole == eLIM_STA_IN_IBSS_ROLE)
-            {
+            if (LIM_IS_AP_ROLE(psessionEntry) ||
+                LIM_IS_BT_AMP_AP_ROLE(psessionEntry) ||
+                LIM_IS_IBSS_ROLE(psessionEntry)) {
                 /**
                  * Check if wep bit was set in FC. If not set,
                  * reject with Authentication frame4 with
@@ -1589,7 +1570,7 @@ limProcessAuthFrame(tpAniSirGlobal pMac, tANI_U8 *pRxPacketInfo, tpPESession pse
 
                 if (vos_mem_compare(pRxAuthFrameBody->challengeText,
                                     pAuthNode->challengeText,
-                                    SIR_MAC_AUTH_CHALLENGE_LENGTH))
+                                    SIR_MAC_SAP_AUTH_CHALLENGE_LENGTH))
                 {
                     /// Challenge match. STA is autheticated !
 

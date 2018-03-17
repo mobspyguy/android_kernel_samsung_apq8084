@@ -286,7 +286,7 @@ tSirRetStatus limCreateSessionForRemainOnChn(tpAniSirGlobal pMac, tPESession **p
     {
         if((psessionEntry = peCreateSession(pMac,
            pMac->lim.gpLimRemainOnChanReq->selfMacAddr,
-           &sessionId, 1, eSIR_INFRA_AP_MODE)) == NULL)
+           &sessionId, pMac->lim.maxStation, eSIR_INFRA_AP_MODE)) == NULL)
         {
             limLog(pMac, LOGE, FL("Session Can not be created "));
             /* send remain on chn failure */
@@ -644,9 +644,8 @@ void limRemainOnChnRsp(tpAniSirGlobal pMac, eHalStatus status, tANI_U32 *data)
     if((psessionEntry = peFindSessionByBssid(pMac,
                  MsgRemainonChannel->selfMacAddr,&sessionId)) != NULL)
     {
-        if ( eLIM_P2P_DEVICE_ROLE == psessionEntry->limSystemRole )
-        {
-           peDeleteSession( pMac, psessionEntry);
+        if (LIM_IS_P2P_DEVICE_ROLE(psessionEntry)) {
+            peDeleteSession( pMac, psessionEntry);
         }
     }
 

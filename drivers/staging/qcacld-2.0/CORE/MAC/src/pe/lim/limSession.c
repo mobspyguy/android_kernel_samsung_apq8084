@@ -138,9 +138,18 @@ void pe_reset_protection_callback(void *ptr)
                  sizeof(pe_session_entry->gLimOverlapHt20Params));
     vos_mem_zero(&pe_session_entry->gLimOverlapNonGfParams,
                  sizeof(pe_session_entry->gLimOverlapNonGfParams));
-
-    vos_mem_zero(&pe_session_entry->beaconParams,
-                 sizeof(pe_session_entry->beaconParams));
+    /*
+     * Do not reset fShortPreamble and beaconInterval, as they
+     * are not updated.
+     */
+    pe_session_entry->beaconParams.llaCoexist = 0;
+    pe_session_entry->beaconParams.llbCoexist = 0;
+    pe_session_entry->beaconParams.llgCoexist = 0;
+    pe_session_entry->beaconParams.ht20Coexist = 0;
+    pe_session_entry->beaconParams.llnNonGFCoexist = 0;
+    pe_session_entry->beaconParams.fRIFSMode = 0;
+    pe_session_entry->beaconParams.fLsigTXOPProtectionFullSupport = 0;
+    pe_session_entry->beaconParams.gHTObssMode = 0;
 
     vos_mem_zero(&mac_ctx->lim.gLimOverlap11gParams,
                  sizeof(mac_ctx->lim.gLimOverlap11gParams));
@@ -569,6 +578,12 @@ void peDeleteSession(tpAniSirGlobal pMac, tpPESession psessionEntry)
     tANI_U16 i = 0;
     tANI_U16 n;
     TX_TIMER *timer_ptr;
+
+    if (!psessionEntry->valid) {
+        limLog(pMac, LOG1, FL("peSession %d already deleted"),
+                   psessionEntry->peSessionId);
+        return;
+    }
 
     VOS_TRACE(VOS_MODULE_ID_PE, VOS_TRACE_LEVEL_DEBUG,
           "Trying to delete PE session %d Opmode %d BssIdx %d"

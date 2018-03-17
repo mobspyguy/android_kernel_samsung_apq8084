@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2012-2014 The Linux Foundation. All rights reserved.
+ * Copyright (c) 2012-2016 The Linux Foundation. All rights reserved.
  *
  * Previously licensed under the ISC license by Qualcomm Atheros, Inc.
  *
@@ -117,6 +117,48 @@ limDeleteStaContext(tpAniSirGlobal pMac, tpSirMsgQ limMsg)
     switch(pMsg->reasonCode)
     {
         case HAL_DEL_STA_REASON_CODE_KEEP_ALIVE:
+             pStaDs = dphLookupAssocId(pMac, pMsg->staId, &pMsg->assocId,
+                            &psessionEntry->dph.dphHashTable);
+
+             if (!pStaDs) {
+                 PELOGE(limLog(pMac, LOGE,
+                               FL("Skip STA deletion (invalid STA) limSystemRole=%d"),
+                               GET_LIM_SYSTEM_ROLE(psessionEntry));)
+                 vos_mem_free(pMsg);
+                 return;
+             }
+
+             /*
+              * check and see if same staId. This is to avoid the scenario
+              * where we're trying to delete a staId we just added.
+              */
+             if (pStaDs->staIndex != pMsg->staId) {
+                 PELOGE(limLog(pMac, LOGE,
+                               FL("staid mismatch: %d vs %d "), pStaDs->staIndex, pMsg->staId);)
+                 vos_mem_free(pMsg);
+                 return;
+             }
+
+             /*
+              * Check if Deauth/Disassoc is triggered from Host.
+              * If mlmState is in some transient state then
+              * don't trigger STA deletion to avoid the race
+              * condition.
+              */
+             if ((pStaDs &&
+                 ((pStaDs->mlmStaContext.mlmState !=
+                   eLIM_MLM_LINK_ESTABLISHED_STATE) &&
+                  (pStaDs->mlmStaContext.mlmState !=
+                   eLIM_MLM_WT_ASSOC_CNF_STATE) &&
+                  (pStaDs->mlmStaContext.mlmState !=
+                   eLIM_MLM_ASSOCIATED_STATE)))) {
+                   PELOGE(limLog(pMac, LOGE,
+                              FL("received Del STA context in some transit state(staId: %d, assocId: %d)"),
+                              pMsg->staId, pMsg->assocId);)
+                vos_mem_free(pMsg);
+                return;
+             }
+
              if (LIM_IS_STA_ROLE(psessionEntry) && !pMsg->is_tdls) {
                  /*
                   * If roaming is in progress, then ignore the STA kick out
@@ -159,33 +201,15 @@ limDeleteStaContext(tpAniSirGlobal pMac, tpSirMsgQ limMsg)
                  /* only break for STA role (non TDLS) */
                  break;
              }
+
              limLog(pMac, LOGE, FL("Deleting sta: staId %d, reasonCode %d"),
                              pMsg->staId, pMsg->reasonCode);
-             if (eLIM_STA_IN_IBSS_ROLE == psessionEntry->limSystemRole)
-                 return;
-
-             pStaDs = dphLookupAssocId(pMac, pMsg->staId, &pMsg->assocId, &psessionEntry->dph.dphHashTable);
-
-             if (!pStaDs)
-             {
-                 PELOGE(limLog(pMac, LOGE, FL("Skip STA deletion (invalid STA) limSystemRole=%d"),psessionEntry->limSystemRole);)
+             if (LIM_IS_IBSS_ROLE(psessionEntry)) {
                  vos_mem_free(pMsg);
                  return;
              }
-
-             /* check and see if same staId. This is to avoid the scenario
-              * where we're trying to delete a staId we just added.
-              */
-             if (pStaDs->staIndex != pMsg->staId)
-             {
-                 PELOGE(limLog(pMac, LOGE, FL("staid mismatch: %d vs %d "), pStaDs->staIndex, pMsg->staId);)
-                 vos_mem_free(pMsg);
-                 return;
-             }
-
-             if((eLIM_BT_AMP_AP_ROLE == psessionEntry->limSystemRole) ||
-                     (eLIM_AP_ROLE == psessionEntry->limSystemRole))
-             {
+             if (LIM_IS_BT_AMP_AP_ROLE(psessionEntry) ||
+                 LIM_IS_AP_ROLE(psessionEntry)) {
                  PELOG1(limLog(pMac, LOG1, FL("SAP:lim Delete Station Context (staId: %d, assocId: %d) "),
                              pMsg->staId, pMsg->assocId);)
                  limSendDisassocMgmtFrame(pMac,
@@ -193,47 +217,19 @@ limDeleteStaContext(tpAniSirGlobal pMac, tpSirMsgQ limMsg)
                                 pStaDs->staAddr, psessionEntry, FALSE);
                  limTriggerSTAdeletion(pMac, pStaDs, psessionEntry);
              }
+#ifdef FEATURE_WLAN_TDLS
              else
              {
-#ifdef FEATURE_WLAN_TDLS
-                if(eLIM_STA_ROLE == psessionEntry->limSystemRole &&
-                    STA_ENTRY_TDLS_PEER == pStaDs->staType)
-                {
+                if (LIM_IS_STA_ROLE(psessionEntry) &&
+                    STA_ENTRY_TDLS_PEER == pStaDs->staType) {
                     //TeardownLink with PEER
                     //Reason code HAL_DEL_STA_REASON_CODE_KEEP_ALIVE means
                     //eSIR_MAC_TDLS_TEARDOWN_PEER_UNREACHABLE
                     limSendSmeTDLSDelStaInd(pMac, pStaDs, psessionEntry,
-                    /*pMsg->reasonCode*/ eSIR_MAC_TDLS_TEARDOWN_PEER_UNREACHABLE);
+                                       eSIR_MAC_TDLS_TEARDOWN_PEER_UNREACHABLE);
                 }
-                else
-                {
-#endif
-                    //TearDownLink with AP
-                    tLimMlmDeauthInd  mlmDeauthInd;
-                    PELOGW(limLog(pMac, LOGW, FL("lim Delete Station Context (staId: %d, assocId: %d) "),
-                                pMsg->staId, pMsg->assocId);)
-
-                    pStaDs->mlmStaContext.disassocReason = eSIR_MAC_UNSPEC_FAILURE_REASON;
-                    pStaDs->mlmStaContext.cleanupTrigger = eLIM_LINK_MONITORING_DEAUTH;
-
-                    // Issue Deauth Indication to SME.
-                    vos_mem_copy((tANI_U8 *) &mlmDeauthInd.peerMacAddr,
-                                  pStaDs->staAddr, sizeof(tSirMacAddr));
-
-                    mlmDeauthInd.reasonCode    = (tANI_U8) pStaDs->mlmStaContext.disassocReason;
-                    mlmDeauthInd.deauthTrigger =  pStaDs->mlmStaContext.cleanupTrigger;
-
-#ifdef FEATURE_WLAN_TDLS
-                    /* Delete all TDLS peers connected before leaving BSS*/
-                    limDeleteTDLSPeers(pMac, psessionEntry);
-#endif
-                    limPostSmeMessage(pMac, LIM_MLM_DEAUTH_IND, (tANI_U32 *) &mlmDeauthInd);
-
-                    limSendSmeDeauthInd(pMac, pStaDs, psessionEntry);
-#ifdef FEATURE_WLAN_TDLS
-                 }
-#endif
              }
+#endif
              break;
 
         case HAL_DEL_STA_REASON_CODE_UNKNOWN_A2:
@@ -457,8 +453,8 @@ void limHandleHeartBeatFailure(tpAniSirGlobal pMac,tpPESession psessionEntry)
     /* Ensure HB Status for the session has been reseted */
     psessionEntry->LimHBFailureStatus = eANI_BOOLEAN_FALSE;
 
-    if (((psessionEntry->limSystemRole == eLIM_STA_ROLE) ||
-         (psessionEntry->limSystemRole == eLIM_BT_AMP_STA_ROLE)) &&
+    if ((LIM_IS_STA_ROLE(psessionEntry) ||
+         LIM_IS_BT_AMP_STA_ROLE(psessionEntry)) &&
          (psessionEntry->limMlmState == eLIM_MLM_LINK_ESTABLISHED_STATE) &&
          (psessionEntry->limSmeState != eLIM_SME_WT_DISASSOC_STATE) &&
          (psessionEntry->limSmeState != eLIM_SME_WT_DEAUTH_STATE))
