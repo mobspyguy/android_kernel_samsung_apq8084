@@ -223,18 +223,14 @@ int update_dsi_tcon_mdnie_register(struct samsung_display_driver_data *vdd)
 static ssize_t mode_show(struct device *dev,
 		struct device_attribute *attr, char *buf)
 {
-	int buffer_pos = 0;
+	int mode = 0;
 	struct mdnie_lite_tun_type *mdnie_tune_state = NULL;
 
-	buffer_pos += snprintf(buf, 256, "Current Mode : ");
 	list_for_each_entry_reverse(mdnie_tune_state, &mdnie_list , used_list) {
-		buffer_pos += snprintf(buf + buffer_pos, 256, "DSI%d : %s ", mdnie_tune_state->index, mdnie_mode_name[mdnie_tune_state->mdnie_mode]);
+		mode = mdnie_tune_state->mdnie_mode;
 	}
-	buffer_pos += snprintf(buf + buffer_pos, 256, "\n");
 
-	DPRINT("%s \n", buf);
-
-	return buffer_pos;
+	return snprintf(buf, 256, "%d\n", mode);
 }
 
 static ssize_t mode_store(struct device *dev,
@@ -269,18 +265,14 @@ static ssize_t scenario_show(struct device *dev,
 					 struct device_attribute *attr,
 					 char *buf)
 {
-	int buffer_pos = 0;
+	int scenario = 0;
 	struct mdnie_lite_tun_type *mdnie_tune_state = NULL;
 
-	buffer_pos += snprintf(buf, 256, "Current APP : ");
 	list_for_each_entry_reverse(mdnie_tune_state, &mdnie_list , used_list) {
-		buffer_pos += snprintf(buf + buffer_pos, 256, "DSI%d : %s ", mdnie_tune_state->index, mdnie_app_name[mdnie_tune_state->mdnie_app]);
+		scenario = mdnie_tune_state->mdnie_app;
 	}
-	buffer_pos += snprintf(buf + buffer_pos, 256, "\n");
 
-	DPRINT("%s \n", buf);
-
-	return buffer_pos;
+	return snprintf(buf, 256, "%d\n", scenario);
 }
 
 /* app_id : App give self_app_id to mdnie driver.
@@ -306,6 +298,11 @@ static int fake_id( int app_id )
 	return ret_id;
 }
 
+static ssize_t mode_max_show(struct device *dev,
+		struct device_attribute *attr, char *buf)
+{
+	return snprintf(buf, PAGE_SIZE, "%u\n", MAX_MODE);
+}
 
 static ssize_t scenario_store(struct device *dev,
 					  struct device_attribute *attr,
@@ -342,18 +339,14 @@ static ssize_t outdoor_show(struct device *dev,
 					      struct device_attribute *attr,
 					      char *buf)
 {
-	int buffer_pos = 0;
+	int outdoor = 0;
 	struct mdnie_lite_tun_type *mdnie_tune_state = NULL;
 
-	buffer_pos += snprintf(buf, 256, "Current outdoor Mode : ");
 	list_for_each_entry_reverse(mdnie_tune_state, &mdnie_list , used_list) {
-		buffer_pos += snprintf(buf + buffer_pos, 256, "DSI%d : %s ", mdnie_tune_state->index, outdoor_name[mdnie_tune_state->outdoor]);
+		outdoor = mdnie_tune_state->outdoor;
 	}
-	buffer_pos += snprintf(buf + buffer_pos, 256, "\n");
 
-	DPRINT("%s \n", buf);
-
-	return buffer_pos;
+	return snprintf(buf, 256, "%d\n", outdoor);
 }
 
 static ssize_t outdoor_store(struct device *dev,
@@ -387,18 +380,14 @@ static ssize_t bypass_show(struct device *dev,
 					 struct device_attribute *attr,
 					 char *buf)
 {
-	int buffer_pos = 0;
+	int bypass = 0;
 	struct mdnie_lite_tun_type *mdnie_tune_state = NULL;
 
-	buffer_pos += snprintf(buf, 256, "Current MDNIE bypass : ");
 	list_for_each_entry_reverse(mdnie_tune_state, &mdnie_list , used_list) {
-		buffer_pos += snprintf(buf + buffer_pos, 256, "DSI%d : %s ", mdnie_tune_state->index, mdnie_tune_state->mdnie_bypass ? "ENABLE" : "DISABLE");
+		bypass = mdnie_tune_state->mdnie_bypass;
 	}
-	buffer_pos += snprintf(buf + buffer_pos, 256, "\n");
 
-	DPRINT("%s \n", buf);
-
-	return buffer_pos;
+	return snprintf(buf, 256, "%d\n", bypass);
 }
 
 static ssize_t bypass_store(struct device *dev,
@@ -525,7 +514,7 @@ static ssize_t sensorRGB_show(struct device *dev,
 	struct mdnie_lite_tun_type *mdnie_tune_state = NULL;
 
 	list_for_each_entry_reverse(mdnie_tune_state, &mdnie_list , used_list) {
-		buffer_pos += snprintf(buf, 256, "%d %d %d ", mdnie_tune_state->scr_white_red, mdnie_tune_state->scr_white_green, mdnie_tune_state->scr_white_blue);
+		buffer_pos += snprintf(buf, 256, "%d %d %d\n", mdnie_tune_state->scr_white_red, mdnie_tune_state->scr_white_green, mdnie_tune_state->scr_white_blue);
 	}
 	return buffer_pos;
 }
@@ -632,18 +621,14 @@ static ssize_t cabc_show(struct device *dev,
 					 struct device_attribute *attr,
 					 char *buf)
 {
-	int buffer_pos = 0;
+	int cabc = 0;
 	struct mdnie_lite_tun_type *mdnie_tune_state = NULL;
 
-	buffer_pos += snprintf(buf, 256, "Current CABC bypass : ");
 	list_for_each_entry_reverse(mdnie_tune_state, &mdnie_list , used_list) {
-		buffer_pos += snprintf(buf + buffer_pos, 256, "DSI%d : %s ", mdnie_tune_state->index, mdnie_tune_state->cabc_bypass ? "ENABLE" : "DISABLE");
+		cabc = mdnie_tune_state->cabc_bypass;
 	}
-	buffer_pos += snprintf(buf + buffer_pos, 256, "\n");
 
-	DPRINT("%s \n", buf);
-
-	return buffer_pos;
+	return snprintf(buf, 256, "%d\n", cabc);
 }
 
 static ssize_t cabc_store(struct device *dev,
@@ -673,13 +658,14 @@ static ssize_t hmt_color_temperature_show(struct device *dev,
 					 struct device_attribute *attr,
 					 char *buf)
 {
+	int hmt_color_temperature = 0;
 	struct mdnie_lite_tun_type *mdnie_tune_state = NULL;
 
 	list_for_each_entry_reverse(mdnie_tune_state, &mdnie_list , used_list) {
-		DPRINT("Current color temperature : %d\n", mdnie_tune_state->hmt_color_temperature);
+		hmt_color_temperature = mdnie_tune_state->hmt_color_temperature;
 	}
 
-	return snprintf(buf, 256, "Current color temperature : %d\n", mdnie_tune_state->hmt_color_temperature);
+	return snprintf(buf, 256, "%d\n", hmt_color_temperature);
 }
 
 static ssize_t hmt_color_temperature_store(struct device *dev,
@@ -719,6 +705,7 @@ static ssize_t hmt_color_temperature_store(struct device *dev,
 }
 
 static DEVICE_ATTR(mode, 0664, mode_show, mode_store);
+static DEVICE_ATTR(mode_max, 0664, mode_max_show, NULL);
 static DEVICE_ATTR(scenario, 0664, scenario_show, scenario_store);
 static DEVICE_ATTR(outdoor, 0664, outdoor_show, outdoor_store);
 static DEVICE_ATTR(bypass, 0664, bypass_show, bypass_store);
@@ -747,6 +734,10 @@ void create_tcon_mdnie_node(void)
 	/* MODE */
 	if (device_create_file(tune_mdnie_dev, &dev_attr_mode) < 0)
 		pr_err("Failed to create device file(%s)!\n", dev_attr_mode.attr.name);
+
+	/* MODE MAX */
+	if (device_create_file(tune_mdnie_dev, &dev_attr_mode_max) < 0)
+		DPRINT("Failed to create device file(%s)!\n", dev_attr_mode_max.attr.name);
 
 	/* OUTDOOR */
 	if (device_create_file(tune_mdnie_dev, &dev_attr_outdoor) < 0)
