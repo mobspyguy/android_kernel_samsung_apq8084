@@ -609,7 +609,7 @@ static int mdss_fb_create_sysfs(struct msm_fb_data_type *mfd)
 	if (rc)
 		pr_err("sysfs group creation failed, rc=%d\n", rc);
 
-	return mdss_livedisplay_create_sysfs(mfd);
+	return rc;
 }
 
 static void mdss_fb_remove_sysfs(struct msm_fb_data_type *mfd)
@@ -2498,7 +2498,7 @@ static int __mdss_fb_perform_commit(struct msm_fb_data_type *mfd)
 			}
 
 			if (fist_commit_flag)
-				pr_info("kickoff done!\n");
+				pr_debug("kickoff done!\n");
 		}
 		else {
 			pr_warn("no kickoff function setup for fb%d, op_enable(%d), power_on(%d)\n",

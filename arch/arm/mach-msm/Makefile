@@ -111,7 +111,6 @@ obj-$(CONFIG_ARCH_MSM8610) += gpiomux-v2.o gpiomux.o
 obj-$(CONFIG_ARCH_APQ8084) += gpiomux-v2.o gpiomux.o
 obj-$(CONFIG_ARCH_FSM9900) += gpiomux-v2.o gpiomux.o
 
-obj-$(CONFIG_MSM_RUN_QUEUE_STATS) += msm_rq_stats.o
 obj-$(CONFIG_MSM_NATIVE_RESTART) += restart.o
 
 obj-$(CONFIG_MSM_CACHE_ERP) += cache_erp.o
@@ -140,7 +139,8 @@ obj-$(CONFIG_REGULATOR_MAX77803) += sec-regulator-max77803.o
 obj-$(CONFIG_REGULATOR_MAX77828) += sec-regulator-max77828.o
 
 
-obj-$(CONFIG_SEC_DEBUG) += sec_debug.o sec_gaf.o sec_getlog.o
+obj-$(CONFIG_SEC_DEBUG) += sec_debug.o sec_gaf.o
+obj-$(CONFIG_SEC_LOG_LAST_KMSG) += sec_getlog.o
 obj-$(CONFIG_SEC_DEBUG_DOUBLE_FREE) += sec_debug-dfd.o
 
 obj-$(CONFIG_SEC_BSP) += sec_bsp.o

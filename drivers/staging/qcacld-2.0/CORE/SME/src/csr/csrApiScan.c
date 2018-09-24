@@ -1760,7 +1760,8 @@ eHalStatus csrScanHandleSearchForSSIDFailure(tpAniSirGlobal pMac, tSmeCmd *pComm
     tCsrRoamSession *pSession = CSR_GET_SESSION( pMac, sessionId );
 #ifdef WLAN_FEATURE_ROAM_SCAN_OFFLOAD
     /* If this scan is for LFR */
-    if (pMac->roam.neighborRoamInfo[sessionId].uOsRequestedHandoff) {
+    if (sessionId < CSR_ROAM_SESSION_MAX &&
+        pMac->roam.neighborRoamInfo[sessionId].uOsRequestedHandoff) {
         /* Notify LFR state m/c */
         if (eHAL_STATUS_SUCCESS != csrNeighborRoamSssidScanDone(pMac,
                                                 sessionId,
@@ -5229,7 +5230,7 @@ static tANI_BOOLEAN csrScanProcessScanResults( tpAniSirGlobal pMac, tSmeCmd *pCo
     }while(0);
     if ( eSIR_SME_MORE_SCAN_RESULTS_FOLLOW != pScanRsp->statusCode )
     {
-        smsLog(pMac, LOGE, "Found %d BSS, statusCode %d",
+        smsLog(pMac, LOGW, "Found %d BSS, statusCode %d",
                            csrLLCount(&pMac->scan.tempScanResults),
                            pScanRsp->statusCode);
         smsLog(pMac, LOG1, "scan reason is %d", pCommand->u.scanCmd.reason);
@@ -8406,6 +8407,13 @@ eHalStatus csrScanSavePreferredNetworkFound(tpAniSirGlobal pMac,
           (SIR_MAC_HDR_LEN_3A + SIR_MAC_B_PR_SSID_OFFSET);
    }
 
+   if (uLen > (UINT_MAX - sizeof(tCsrScanResult))) {
+       smsLog(pMac, LOGE,
+              FL("Incorrect len: %d, may leads to int overflow, uLen %d"),
+              pPrefNetworkFoundInd->frameLength, uLen);
+       vos_mem_free(pParsedFrame);
+       return eHAL_STATUS_FAILURE;
+   }
    pScanResult = vos_mem_malloc(sizeof(tCsrScanResult) + uLen);
    if ( NULL == pScanResult )
    {

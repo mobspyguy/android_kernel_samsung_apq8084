@@ -2804,7 +2804,7 @@ eHalStatus sme_ProcessMsg(tHalHandle hHal, vos_msg_t* pMsg)
            case eWNI_SME_CH_AVOID_IND:
                 if (pMac->sme.pChAvoidNotificationCb)
                 {
-                   VOS_TRACE(VOS_MODULE_ID_SME, VOS_TRACE_LEVEL_ERROR,
+                   VOS_TRACE(VOS_MODULE_ID_SME, VOS_TRACE_LEVEL_INFO,
                              "%s: CH avoid notification", __func__);
                    pMac->sme.pChAvoidNotificationCb(pMac->hHdd, pMsg->bodyptr);
                 }
@@ -7222,11 +7222,11 @@ eHalStatus sme_updateP2pIe(tHalHandle hHal, void *p2pIe, tANI_U32 p2pIeLength)
         {
             pMac->p2pContext.probeRspIeLength = p2pIeLength;
 
+            vos_mem_copy((tANI_U8 *)pMac->p2pContext.probeRspIe, p2pIe,
+                         p2pIeLength);
             sirDumpBuf( pMac, SIR_LIM_MODULE_ID, LOG2,
                         pMac->p2pContext.probeRspIe,
                         pMac->p2pContext.probeRspIeLength );
-            vos_mem_copy((tANI_U8 *)pMac->p2pContext.probeRspIe, p2pIe,
-                         p2pIeLength);
         }
 
         //release the lock for the sme object
@@ -8343,10 +8343,8 @@ eHalStatus sme_8023MulticastList (tHalHandle hHal, tANI_U8 sessionId, tpSirRcvFl
         pSession = CSR_GET_SESSION( pMac, sessionId );
     }
 
-    if(pSession == NULL )
-    {
-        VOS_TRACE(VOS_MODULE_ID_SME, VOS_TRACE_LEVEL_ERROR, "%s: Unable to find "
-            "the session Id: %d", __func__, sessionId);
+    if (pSession == NULL) {
+        smsLog(pMac, LOGW, FL("Unable to find the session Id: %d"), sessionId);
         return eHAL_STATUS_FAILURE;
     }
 
@@ -13495,10 +13493,9 @@ VOS_STATUS sme_UpdateDSCPtoUPMapping( tHalHandle hHal,
             return eHAL_STATUS_FAILURE;
         }
 
-        if ( !pSession->QosMapSet.present )
-        {
-            VOS_TRACE(VOS_MODULE_ID_SME, VOS_TRACE_LEVEL_INFO,
-                     "%s: QOS Mapping IE not present", __func__);
+        if ( !pSession->QosMapSet.present ) {
+            VOS_TRACE(VOS_MODULE_ID_SME, VOS_TRACE_LEVEL_WARN,
+                     FL("QOS Mapping IE not present"));
             sme_ReleaseGlobalLock( &pMac->sme);
             return eHAL_STATUS_FAILURE;
         }

@@ -50,21 +50,23 @@ struct msm_serial_hs_platform_data {
 	unsigned bam_tx_ep_pipe_index;
 	unsigned bam_rx_ep_pipe_index;
 	bool no_suspend_delay;
-#if defined(CONFIG_SERIAL_MSM_HS_LENTIS)
+#ifndef CONFIG_SERIAL_MSM_HS_TRLTE
 	bool obs;
 #endif
 };
 
 /* return true when tx is empty */
 unsigned int msm_hs_tx_empty(struct uart_port *uport);
-void msm_hs_request_clock_off(struct uart_port *uport);
-void msm_hs_request_clock_on(struct uart_port *uport);
+int msm_hs_request_clock_off(struct uart_port *uport);
+int msm_hs_request_clock_on(struct uart_port *uport);
 struct uart_port *msm_hs_get_uart_port(int port_index);
 void msm_hs_set_mctrl(struct uart_port *uport,
 				    unsigned int mctrl);
-#if !defined(CONFIG_SERIAL_MSM_HS_LENTIS)
+
+#ifdef CONFIG_SERIAL_MSM_HS_TRLTE
 struct uart_port * msm_hs_get_port_by_id(int num);
 int msm_hs_get_clock_state(struct uart_port *uport);
 int msm_hs_get_clock_count(struct uart_port *uport);
 #endif
+
 #endif

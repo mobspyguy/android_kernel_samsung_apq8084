@@ -31,7 +31,7 @@ Copyright (C) 2012, Samsung Electronics. All rights reserved.
 */
 #include "ss_dsi_mdnie_lite_common.h"
 
-#define MDNIE_LITE_TUN_DEBUG
+/* #define MDNIE_LITE_TUN_DEBUG */
 
 #ifdef MDNIE_LITE_TUN_DEBUG
 #define DPRINT(x...)	printk(KERN_ERR "[mdnie_lite] " x)
@@ -673,7 +673,7 @@ static ssize_t hmt_color_temperature_store(struct device *dev,
 					  const char *buf, size_t size)
 {
 	int value;
-	int backup;
+	int backup = 0;
 	struct mdnie_lite_tun_type *mdnie_tune_state = NULL;
 	struct samsung_display_driver_data *vdd = NULL;
 
@@ -705,7 +705,7 @@ static ssize_t hmt_color_temperature_store(struct device *dev,
 }
 
 static DEVICE_ATTR(mode, 0664, mode_show, mode_store);
-static DEVICE_ATTR(mode_max, 0664, mode_max_show, NULL);
+static DEVICE_ATTR(mode_max, 0444, mode_max_show, NULL);
 static DEVICE_ATTR(scenario, 0664, scenario_show, scenario_store);
 static DEVICE_ATTR(outdoor, 0664, outdoor_show, outdoor_store);
 static DEVICE_ATTR(bypass, 0664, bypass_show, bypass_store);
