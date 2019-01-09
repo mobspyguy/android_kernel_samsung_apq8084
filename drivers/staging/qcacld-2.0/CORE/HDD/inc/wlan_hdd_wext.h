@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2012-2014 The Linux Foundation. All rights reserved.
+ * Copyright (c) 2012-2014, 2018 The Linux Foundation. All rights reserved.
  *
  * Previously licensed under the ISC license by Qualcomm Atheros, Inc.
  *
@@ -152,7 +152,7 @@ typedef enum
 #define IE_VENDOR_OUI_SIZE   4
 
 /** Maximum Length of WPA/RSN IE */
-#define MAX_WPA_RSN_IE_LEN 40
+#define MAX_WPA_RSN_IE_LEN 255
 
 /** Maximum Number of WEP KEYS */
 #define MAX_WEP_KEYS 4
@@ -397,8 +397,6 @@ extern void *mem_alloc_copy_from_user_helper(const void *wrqu_data, size_t len);
 extern VOS_STATUS wlan_hdd_get_linkspeed_for_peermac(hdd_adapter_t *pAdapter,
                                                      tSirMacAddr macAddress);
 void hdd_clearRoamProfileIe( hdd_adapter_t *pAdapter);
-void hdd_GetClassA_statisticsCB(void *pStats, void *pContext);
-void hdd_GetLink_SpeedCB(tSirLinkSpeedInfo *pLinkSpeed, void *pContext);
 
 VOS_STATUS wlan_hdd_check_ula_done(hdd_adapter_t *pAdapter);
 

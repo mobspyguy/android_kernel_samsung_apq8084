@@ -218,6 +218,10 @@ struct	qcedev_sha_op_req {
 	enum qcedev_sha_alg_enum	alg;
 };
 
+struct file;
+extern long qcedev_ioctl(struct file *file,
+			unsigned cmd, unsigned long arg);
+
 /**
 * struct qfips_verify_t - Holds data for FIPS Integrity test
 * @kernel_size  (IN):		Size of kernel Image
@@ -247,7 +251,7 @@ struct qfips_verify_t {
 #define QCEDEV_IOCTL_UNLOCK_CE	\
 	_IO(QCEDEV_IOC_MAGIC, 8)
 #define QCEDEV_IOCTL_GET_CMAC_REQ	\
-	_IOWR(QCEDEV_IOC_MAGIC, 9, struct qcedev_cipher_op_req)
+	_IOWR(QCEDEV_IOC_MAGIC, 9, struct qcedev_sha_op_req)
 #define QCEDEV_IOCTL_UPDATE_FIPS_STATUS		\
 	_IOWR(QCEDEV_IOC_MAGIC, 10, enum fips_status)
 #define QCEDEV_IOCTL_QUERY_FIPS_STATUS	\
