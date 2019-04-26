@@ -19,6 +19,7 @@ struct mem_cgroup;
 #ifdef CONFIG_KSM
 int ksm_madvise(struct vm_area_struct *vma, unsigned long start,
 		unsigned long end, int advice, unsigned long *vm_flags);
+void ksm_show_stats(void);
 
 /*
  * A KSM page is one of those write-protected "shared pages" or "merged pages"
@@ -60,7 +61,8 @@ struct page *ksm_might_need_to_copy(struct page *page,
 
 int page_referenced_ksm(struct page *page,
 			struct mem_cgroup *memcg, unsigned long *vm_flags);
-int try_to_unmap_ksm(struct page *page, enum ttu_flags flags);
+int try_to_unmap_ksm(struct page *page,
+			enum ttu_flags flags, struct vm_area_struct *vma);
 int rmap_walk_ksm(struct page *page, int (*rmap_one)(struct page *,
 		  struct vm_area_struct *, unsigned long, void *), void *arg);
 void ksm_migrate_page(struct page *newpage, struct page *oldpage);
@@ -108,6 +110,10 @@ static inline int PageKsm(struct page *page)
 	return 0;
 }
 
+static inline void ksm_show_stats(void)
+{
+}
+
 #ifdef CONFIG_MMU
 static inline int ksm_madvise(struct vm_area_struct *vma, unsigned long start,
 		unsigned long end, int advice, unsigned long *vm_flags)
@@ -127,7 +133,8 @@ static inline int page_referenced_ksm(struct page *page,
 	return 0;
 }
 
-static inline int try_to_unmap_ksm(struct page *page, enum ttu_flags flags)
+static inline int try_to_unmap_ksm(struct page *page,
+			enum ttu_flags flags, struct vm_area_struct *target_vma)
 {
 	return 0;
 }

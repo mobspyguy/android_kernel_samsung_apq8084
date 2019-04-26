@@ -217,14 +217,15 @@ static unsigned long ksm_pages_unshared;
 /* The number of rmap_items in use: to calculate pages_volatile */
 static unsigned long ksm_rmap_items;
 
+/* set pages to 10 for powersaving purpose*/
 /* Number of pages ksmd should scan in one batch */
-static unsigned int ksm_thread_pages_to_scan = 100;
+static unsigned int ksm_thread_pages_to_scan = 10;
 
 /* Milliseconds ksmd should sleep between batches */
 static unsigned int ksm_thread_sleep_millisecs = 20;
 
 /* Boolean to indicate whether to use deferred timer or not */
-static bool use_deferred_timer;
+static bool use_deferred_timer = 1;
 
 #ifdef CONFIG_NUMA
 /* Zeroed when merging across nodes is not allowed */
@@ -1688,6 +1689,7 @@ next_mm:
 		goto next_mm;
 
 	ksm_scan.seqnr++;
+	ksm_show_stats();
 	return NULL;
 }
 
@@ -1903,6 +1905,18 @@ void __ksm_exit(struct mm_struct *mm)
 	}
 }
 
+void ksm_show_stats(void)
+{
+	printk("ksm: %lu %lu %lu %lu %lu %lu\n",
+		ksm_scan.seqnr,
+		ksm_rmap_items,
+		ksm_pages_shared,
+		ksm_pages_sharing,
+		ksm_pages_unshared,
+		ksm_rmap_items - ksm_pages_shared - ksm_pages_sharing
+			- ksm_pages_unshared);
+}
+
 struct page *ksm_might_need_to_copy(struct page *page,
 			struct vm_area_struct *vma, unsigned long address)
 {
@@ -1989,7 +2003,8 @@ out:
 	return referenced;
 }
 
-int try_to_unmap_ksm(struct page *page, enum ttu_flags flags)
+int try_to_unmap_ksm(struct page *page, enum ttu_flags flags,
+			struct vm_area_struct *target_vma)
 {
 	struct stable_node *stable_node;
 	struct rmap_item *rmap_item;
@@ -2002,6 +2017,12 @@ int try_to_unmap_ksm(struct page *page, enum ttu_flags flags)
 	stable_node = page_stable_node(page);
 	if (!stable_node)
 		return SWAP_FAIL;
+
+	if (target_vma) {
+		unsigned long address = vma_address(page, target_vma);
+		ret = try_to_unmap_one(page, target_vma, address, flags);
+		goto out;
+	}
 again:
 	hlist_for_each_entry(rmap_item, &stable_node->hlist, hlist) {
 		struct anon_vma *anon_vma = rmap_item->anon_vma;
@@ -2328,7 +2349,7 @@ static ssize_t deferred_timer_store(struct kobject *kobj,
 				     struct kobj_attribute *attr,
 				     const char *buf, size_t count)
 {
-	unsigned long enable;
+	unsigned long enable = 0;
 	int err;
 
 	err = kstrtoul(buf, 10, &enable);
